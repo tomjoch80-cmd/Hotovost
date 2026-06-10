@@ -140,7 +140,7 @@ body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);ma
       <div class="modal-title" style="margin:0" id="pie-title">Výdaje podle kategorií</div>
       <button onclick="closeM('m-pie')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button>
     </div>
-    <div style="height:220px;position:relative"><canvas id="pieChart"></canvas></div>
+    <div style="height:220px;position:relative;width:100%"><canvas id="pieChart" style="max-height:220px"></canvas></div>
     <div id="pie-legend" style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
   </div>
 </div>
@@ -403,7 +403,9 @@ function openPie(){
 
   setTimeout(()=>{
     const canvas=document.getElementById('pieChart');
+    if(!canvas)return;
     if(pieChart){pieChart.destroy();pieChart=null;}
+    canvas.style.display='block';
     pieChart=new Chart(canvas,{
       type:'doughnut',
       data:{
@@ -420,7 +422,7 @@ function openPie(){
         <span style="color:var(--muted)">${r.cat.icon} ${r.cat.name}</span>
         <span style="font-weight:700;margin-left:auto">${fmt(r.sum)}</span>
       </div>`).join('');
-  },50);
+  },150);
 }
 
 
