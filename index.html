@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Hotovost</title>
 <link rel="manifest" href="manifest.json">
+<script>if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");</script>
 <meta name="theme-color" content="#1565C0">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -424,19 +425,17 @@ function setType(t){
 async function saveTx(){
   const amount=parseFloat(document.getElementById('f-amt').value);
   if(!amount||isNaN(amount)){toast('Zadej částku');return;}
-  const btn=document.getElementById('btn-save-tx');
-  btn.disabled=true;btn.textContent='Ukládám...';
   const accountId=document.getElementById('f-acc').value;
   const categoryId=document.getElementById('f-cat').value;
   const date=document.getElementById('f-date').value;
   const note=document.getElementById('f-note').value.trim();
-  const ts=firebase.firestore.FieldValue.serverTimestamp();
-  await db.collection('transactions').add({type:txType,amount,accountId,categoryId,date,note,createdAt:ts});
-  const delta=txType==='prijem'?amount:-amount;
-  await db.collection('accounts').doc(accountId).update({balance:firebase.firestore.FieldValue.increment(delta)});
-  btn.disabled=false;btn.textContent='Uložit';
+  const type=txType;
   closeM('m-tx');
-  toast(txType==='vydaj'?'Výdaj přidán ✓':'Příjem přidán ✓');
+  toast(type==='vydaj'?'Výdaj přidán ✓':'Příjem přidán ✓');
+  const ts=firebase.firestore.FieldValue.serverTimestamp();
+  db.collection('transactions').add({type,amount,accountId,categoryId,date,note,createdAt:ts});
+  const delta=type==='prijem'?amount:-amount;
+  db.collection('accounts').doc(accountId).update({balance:firebase.firestore.FieldValue.increment(delta)});
 }
 
 async function saveCat(){
@@ -453,13 +452,10 @@ async function saveCat(){
 async function saveAcc(){
   const name=document.getElementById('a-name').value.trim();
   if(!name){toast('Zadej jméno');return;}
-  const btn=document.getElementById('btn-save-acc');
-  btn.disabled=true;btn.textContent='Ukládám...';
-  await db.collection('accounts').add({name,color:ACC_COLORS[accounts.length%ACC_COLORS.length],balance:0,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
-  btn.disabled=false;btn.textContent='Přidat';
   closeM('m-acc');
-  document.getElementById('a-name').value='';
   toast('Účet přidán ✓');
+  document.getElementById('a-name').value='';
+  db.collection('accounts').add({name,color:ACC_COLORS[accounts.length%ACC_COLORS.length],balance:0,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
 }
 
 document.querySelectorAll('.overlay').forEach(el=>el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('open');}));
