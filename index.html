@@ -38,7 +38,7 @@ body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);ma
 .acc-row:last-child{border-bottom:none}
 .acc-dot{width:11px;height:11px;border-radius:50%;margin-right:9px;flex-shrink:0}
 .acc-bal{font-weight:700;font-size:16px}
-.chart-wrap{height:130px;position:relative}
+.chart-wrap{height:160px;position:relative}
 .cat-row{margin-bottom:10px}
 .cat-row-top{display:flex;justify-content:space-between;margin-bottom:3px;font-size:13px}
 .cat-bar-bg{background:#f0f0f0;border-radius:4px;height:6px}
@@ -315,7 +315,7 @@ function vPrehled(){
             <div style="width:11px;height:11px;border-radius:50%;background:${a.color}"></div>
             <span style="font-weight:700;font-size:15px">${a.name}</span>
           </div>
-          ${isCurrent?`<span style="font-weight:700;font-size:15px" class="${(a.balance||0)>=0?'pos':'neg'}">${fmt(a.balance||0)}</span>`:''}
+
         </div>
         <div style="display:flex;justify-content:space-between;padding:0 2px">
           <div style="text-align:center;flex:1">
@@ -369,7 +369,7 @@ function renderChart(){
     type:'bar',
     data:{labels:days.map(d=>d.label),datasets:[{data:days.map(d=>d.sum),backgroundColor:'#EF5350cc',borderRadius:3,borderSkipped:false}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)}}},
-      scales:{x:{grid:{display:false},ticks:{font:{size:9},maxRotation:0}},y:{grid:{color:'#f0f0f0'},ticks:{font:{size:10},callback:v=>v===0?'0':v>=1000?(v/1000).toFixed(0)+'k':v}}}}
+      scales:{x:{grid:{display:false},ticks:{font:{size:8},maxRotation:0,autoSkip:false,callback:(val,i)=>(i%2===0?days[i].label:'')}},y:{grid:{color:'#f0f0f0'},ticks:{font:{size:10},callback:v=>v===0?'0':v>=1000?(v/1000).toFixed(0)+'k':v}}}}
   });
 }
 
