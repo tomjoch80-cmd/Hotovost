@@ -224,6 +224,15 @@ async function seed(){
 
 function init(){
   let loaded={a:false,c:false,t:false};
+  // záchranný timeout – po 8 sekundách zobraz co máme
+  setTimeout(()=>{
+    if(!ready){
+      ready=true;
+      document.getElementById('dot').className='dot err';
+      document.getElementById('sync-lbl').textContent='offline';
+      render();
+    }
+  },8000);
   function checkReady(){
     if(loaded.a&&loaded.c&&loaded.t&&!ready){
       ready=true;
@@ -235,16 +244,16 @@ function init(){
   db.collection('accounts').orderBy('createdAt').onSnapshot(s=>{
     accounts=s.docs.map(d=>({id:d.id,...d.data()}));
     loaded.a=true; if(ready)render(); else checkReady();
-  },()=>{loaded.a=true;checkReady();});
+  },e=>{console.warn('accounts',e);loaded.a=true;checkReady();});
   db.collection('categories').orderBy('createdAt').onSnapshot(s=>{
     categories=s.docs.map(d=>({id:d.id,...d.data()}));
     loaded.c=true; if(ready)render(); else checkReady();
-  },()=>{loaded.c=true;checkReady();});
+  },e=>{console.warn('categories',e);loaded.c=true;checkReady();});
   db.collection('transactions').orderBy('date','desc').onSnapshot(s=>{
     transactions=s.docs.map(d=>({id:d.id,...d.data()}));
     loaded.t=true; if(ready)render(); else checkReady();
-  },err=>{
-    console.error(err);
+  },e=>{
+    console.warn('transactions',e);
     document.getElementById('dot').className='dot err';
     document.getElementById('sync-lbl').textContent='offline';
     loaded.t=true;checkReady();
