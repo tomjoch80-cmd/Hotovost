@@ -140,7 +140,7 @@ body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);ma
       <div class="modal-title" style="margin:0" id="pie-title">Výdaje podle kategorií</div>
       <button onclick="closeM('m-pie')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button>
     </div>
-    <div style="height:220px;position:relative;width:100%"><canvas id="pieChart" style="max-height:220px"></canvas></div>
+    <div style="height:220px;position:relative"><canvas id="pieChart"></canvas></div>
     <div id="pie-legend" style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
   </div>
 </div>
@@ -224,15 +224,6 @@ async function seed(){
 
 function init(){
   let loaded={a:false,c:false,t:false};
-  // záchranný timeout – po 8 sekundách zobraz co máme
-  setTimeout(()=>{
-    if(!ready){
-      ready=true;
-      document.getElementById('dot').className='dot err';
-      document.getElementById('sync-lbl').textContent='offline';
-      render();
-    }
-  },8000);
   function checkReady(){
     if(loaded.a&&loaded.c&&loaded.t&&!ready){
       ready=true;
@@ -244,16 +235,16 @@ function init(){
   db.collection('accounts').orderBy('createdAt').onSnapshot(s=>{
     accounts=s.docs.map(d=>({id:d.id,...d.data()}));
     loaded.a=true; if(ready)render(); else checkReady();
-  },e=>{console.warn('accounts',e);loaded.a=true;checkReady();});
+  },()=>{loaded.a=true;checkReady();});
   db.collection('categories').orderBy('createdAt').onSnapshot(s=>{
     categories=s.docs.map(d=>({id:d.id,...d.data()}));
     loaded.c=true; if(ready)render(); else checkReady();
-  },e=>{console.warn('categories',e);loaded.c=true;checkReady();});
+  },()=>{loaded.c=true;checkReady();});
   db.collection('transactions').orderBy('date','desc').onSnapshot(s=>{
     transactions=s.docs.map(d=>({id:d.id,...d.data()}));
     loaded.t=true; if(ready)render(); else checkReady();
-  },e=>{
-    console.warn('transactions',e);
+  },err=>{
+    console.error(err);
     document.getElementById('dot').className='dot err';
     document.getElementById('sync-lbl').textContent='offline';
     loaded.t=true;checkReady();
@@ -412,9 +403,7 @@ function openPie(){
 
   setTimeout(()=>{
     const canvas=document.getElementById('pieChart');
-    if(!canvas)return;
     if(pieChart){pieChart.destroy();pieChart=null;}
-    canvas.style.display='block';
     pieChart=new Chart(canvas,{
       type:'doughnut',
       data:{
@@ -431,7 +420,7 @@ function openPie(){
         <span style="color:var(--muted)">${r.cat.icon} ${r.cat.name}</span>
         <span style="font-weight:700;margin-left:auto">${fmt(r.sum)}</span>
       </div>`).join('');
-  },150);
+  },50);
 }
 
 
