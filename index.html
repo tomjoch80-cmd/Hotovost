@@ -180,20 +180,16 @@ function toast(msg){
   setTimeout(()=>el.classList.remove('show'),2500);
 }
 
-function init(){
-  db.collection('accounts').orderBy('createdAt').onSnapshot(s=>{
-    accounts=s.docs.map(d=>({id:d.id,...d.data()}));
-    if(ready)render();
-  });
-  db.collection('categories').orderBy('createdAt').onSnapshot(s=>{
-    categories=s.docs.map(d=>({id:d.id,...d.data()}));
-    if(ready)render();
-  });
-  db.collection('transactions').orderBy('date','desc').orderBy('createdAt','desc').onSnapshot(s=>{
-    transactions=s.docs.map(d=>({id:d.id,...d.data()}));
-    if(ready)render();
-  });
-  setTimeout(async()=>{
+async function seed(){
+  // Použij transakci aby seed proběhl jen jednou i když appku otevřou oba najednou
+  const ref = db.collection('_meta').doc('seeded');
+  try {
+    await db.runTransaction(async tx=>{
+      const doc = await tx.get(ref);
+      if(doc.exists) return; // už oseedováno
+      tx.set(ref,{at: firebase.firestore.FieldValue.serverTimestamp()});
+    });
+    // Jsme první – přidej výchozí data
     const ts=firebase.firestore.FieldValue.serverTimestamp();
     const aSnap=await db.collection('accounts').get();
     if(aSnap.empty){
@@ -205,15 +201,38 @@ function init(){
       const defs=[{name:'Potraviny',icon:'🛒',color:'#4CAF50'},{name:'Oblečení',icon:'👗',color:'#9C27B0'},{name:'Doprava',icon:'🚗',color:'#2196F3'},{name:'Restaurace',icon:'🍽️',color:'#FF5722'},{name:'Zdraví',icon:'💊',color:'#F44336'},{name:'Zábava',icon:'🎬',color:'#FF9800'},{name:'Ostatní',icon:'📦',color:'#607D8B'}];
       for(const d of defs) await db.collection('categories').add({...d,createdAt:ts});
     }
-    ready=true;
-    document.getElementById('dot').className='dot ok';
-    document.getElementById('sync-lbl').textContent='online';
-    render();
-  },1000);
+  } catch(e){ /* seed už proběhl nebo chyba – ok */ }
 }
-db.collection('_ping').doc('p').set({t:Date.now()})
-  .then(()=>{document.getElementById('dot').className='dot ok';document.getElementById('sync-lbl').textContent='online';})
-  .catch(()=>{document.getElementById('dot').className='dot err';document.getElementById('sync-lbl').textContent='offline';});
+
+function init(){
+  let loaded={a:false,c:false,t:false};
+  function checkReady(){
+    if(loaded.a&&loaded.c&&loaded.t&&!ready){
+      ready=true;
+      document.getElementById('dot').className='dot ok';
+      document.getElementById('sync-lbl').textContent='online';
+      render();
+    }
+  }
+  db.collection('accounts').orderBy('createdAt').onSnapshot(s=>{
+    accounts=s.docs.map(d=>({id:d.id,...d.data()}));
+    loaded.a=true; if(ready)render(); else checkReady();
+  },()=>{loaded.a=true;checkReady();});
+  db.collection('categories').orderBy('createdAt').onSnapshot(s=>{
+    categories=s.docs.map(d=>({id:d.id,...d.data()}));
+    loaded.c=true; if(ready)render(); else checkReady();
+  },()=>{loaded.c=true;checkReady();});
+  db.collection('transactions').orderBy('date','desc').orderBy('createdAt','desc').onSnapshot(s=>{
+    transactions=s.docs.map(d=>({id:d.id,...d.data()}));
+    loaded.t=true; if(ready)render(); else checkReady();
+  },err=>{
+    console.error(err);
+    document.getElementById('dot').className='dot err';
+    document.getElementById('sync-lbl').textContent='offline';
+    loaded.t=true;checkReady();
+  });
+  seed();
+}
 
 function go(v,btn){
   view=v;
