@@ -109,10 +109,14 @@ body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);ma
 <div class="toast" id="toast"></div>
 <button class="fab" id="fab" onclick="openAdd()">+</button>
 
-<!-- ADD TX -->
+<!-- ADD/EDIT TX -->
 <div class="overlay" id="m-tx">
   <div class="modal">
-    <div class="modal-title">Nová transakce</div>
+    <div class="modal-title" id="m-tx-title">Nová transakce</div>
+    <input type="hidden" id="f-edit-id">
+    <input type="hidden" id="f-edit-old-acc">
+    <input type="hidden" id="f-edit-old-amt">
+    <input type="hidden" id="f-edit-old-type">
     <div class="type-row">
       <button class="type-btn vydaj active" id="btn-v" onclick="setType('vydaj')">Výdaj 💸</button>
       <button class="type-btn prijem" id="btn-p" onclick="setType('prijem')">Příjem 💰</button>
@@ -236,6 +240,12 @@ function init(){
   seed();
 }
 
+function goUcty(){
+  const btn=document.querySelectorAll('.nav button')[1];
+  go('ucty',btn);
+  window.scrollTo(0,0);
+}
+
 function go(v,btn){
   view=v;
   document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
@@ -293,16 +303,41 @@ function vPrehled(){
     </div>
   </div>`;
 
-  if(isCurrent){
-    h+=`<div class="card">
-      <div class="card-title">Účty</div>
-      ${accounts.map(a=>`<div class="acc-row">
-        <div style="display:flex;align-items:center"><div class="acc-dot" style="background:${a.color}"></div><span style="font-weight:600;font-size:14px">${a.name}</span></div>
-        <div class="acc-bal ${(a.balance||0)>=0?'pos':'neg'}">${fmt(a.balance||0)}</div>
-      </div>`).join('')}
-      <div class="acc-row" style="font-weight:700"><span>Celkem</span><span class="${totalBal>=0?'pos':'neg'}">${fmt(totalBal)}</span></div>
-    </div>`;
-  }
+  h+=`<div class="card">
+    <div class="card-title">Účty</div>
+    ${accounts.map(a=>{
+      const aInc=mTx.filter(t=>t.type==='prijem'&&t.accountId===a.id).reduce((s,t)=>s+t.amount,0);
+      const aExp=mTx.filter(t=>t.type==='vydaj'&&t.accountId===a.id).reduce((s,t)=>s+t.amount,0);
+      const aBil=aInc-aExp;
+      return`<div onclick="goUcty()" style="padding:10px 0;border-bottom:1px solid #f5f5f5;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:11px;height:11px;border-radius:50%;background:${a.color}"></div>
+            <span style="font-weight:700;font-size:15px">${a.name}</span>
+          </div>
+          ${isCurrent?`<span style="font-weight:700;font-size:15px" class="${(a.balance||0)>=0?'pos':'neg'}">${fmt(a.balance||0)}</span>`:''}
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:0 2px">
+          <div style="text-align:center;flex:1">
+            <div style="font-size:10px;color:var(--muted)">Příjmy</div>
+            <div style="font-size:13px;font-weight:600;color:var(--green)">+${fmt(aInc)}</div>
+          </div>
+          <div style="text-align:center;flex:1">
+            <div style="font-size:10px;color:var(--muted)">Výdaje</div>
+            <div style="font-size:13px;font-weight:600;color:var(--red)">−${fmt(aExp)}</div>
+          </div>
+          <div style="text-align:center;flex:1">
+            <div style="font-size:10px;color:var(--muted)">Bilance</div>
+            <div style="font-size:13px;font-weight:600" class="${aBil>=0?'pos':'neg'}">${aBil>=0?'+':''}${fmt(aBil)}</div>
+          </div>
+        </div>
+      </div>`;
+    }).join('')}
+    <div style="padding:8px 0 2px;display:flex;justify-content:space-between;font-weight:700;font-size:14px">
+      <span>Celkem</span>
+      <span class="${totalBal>=0?'pos':'neg'}">${fmt(totalBal)}</span>
+    </div>
+  </div>`;
 
   h+=`<div class="card">
     <div class="card-title">Výdaje – ${MONTHS[m]}</div>
@@ -349,25 +384,40 @@ function vUcty(){
     <span style="font-weight:700;font-size:17px" class="${tot>=0?'pos':'neg'}">${fmt(tot)}</span>
   </div>`;
   accounts.forEach(a=>{
-    const last=transactions.find(t=>t.accountId===a.id);
-    const hasTx=transactions.some(t=>t.accountId===a.id);
-    h+=`<div class="card" onclick="openAdd('${a.id}')" style="cursor:pointer;active:opacity:.8">
-      <div style="display:flex;justify-content:space-between;align-items:center">
+    const aTx=transactions.filter(t=>t.accountId===a.id);
+    const hasTx=aTx.length>0;
+    h+=`<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:10px">
           <div style="width:14px;height:14px;border-radius:50%;background:${a.color}"></div>
-          <div><div style="font-weight:700;font-size:16px">${a.name}</div>
-            <div style="font-size:12px;color:var(--muted)">${last?'Naposledy: '+last.date:'Zatím žádné záznamy'}</div></div>
+          <span style="font-weight:700;font-size:16px">${a.name}</span>
         </div>
-        <div style="text-align:right">
-          <div style="font-weight:700;font-size:19px" class="${(a.balance||0)>=0?'pos':'neg'}">${fmt(a.balance||0)}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">Klepni pro přidání</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:700;font-size:18px" class="${(a.balance||0)>=0?'pos':'neg'}">${fmt(a.balance||0)}</span>
+          ${!hasTx?`<button onclick="deleteAcc('${a.id}')" style="background:none;border:1px solid #ffcdd2;color:var(--red);border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">Smazat</button>`:''}
         </div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-        <div style="font-size:12px;color:var(--muted)">Transakcí: ${transactions.filter(t=>t.accountId===a.id).length}</div>
-        ${!hasTx?`<button onclick="event.stopPropagation();deleteAcc('${a.id}')" style="background:none;border:1px solid #ffcdd2;color:var(--red);border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">Smazat</button>`:''}
-      </div>
-    </div>`;
+      </div>`;
+    if(aTx.length){
+      h+=`<div style="border-top:1px solid #f0f0f0;padding-top:8px">`;
+      aTx.slice(0,20).forEach(t=>{
+        const cat=categories.find(c=>c.id===t.categoryId);
+        h+=`<div onclick="openEdit('${t.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #fafafa;cursor:pointer">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:18px">${t.type==='prijem'?'💰':cat?.icon||'📦'}</span>
+            <div>
+              <div style="font-size:13px;font-weight:600">${t.type==='prijem'?'Příjem':cat?.name||'Ostatní'}</div>
+              <div style="font-size:11px;color:var(--muted)">${t.date}${t.note?' · '+t.note:''}</div>
+            </div>
+          </div>
+          <span style="font-weight:700;font-size:14px" class="${t.type==='prijem'?'pos':'neg'}">${t.type==='prijem'?'+':'−'}${fmt(t.amount)}</span>
+        </div>`;
+      });
+      if(aTx.length>20) h+=`<div style="text-align:center;font-size:12px;color:var(--muted);padding:6px">+ dalších ${aTx.length-20} záznamů</div>`;
+      h+=`</div>`;
+    } else {
+      h+=`<div style="font-size:13px;color:var(--muted);text-align:center;padding:8px 0">Zatím žádné záznamy</div>`;
+    }
+    h+=`</div>`;
   });
   h+=`<button class="btn-add" onclick="document.getElementById('m-acc').classList.add('open')">+ Přidat účet</button>`;
   return h;
@@ -384,17 +434,17 @@ function vTx(){
   return transactions.map(t=>{
     const acc=accounts.find(a=>a.id===t.accountId);
     const cat=categories.find(c=>c.id===t.categoryId);
-    return`<div class="tx-item">
+    return`<div class="tx-item" onclick="openEdit('${t.id}')" style="cursor:pointer">
       <div style="display:flex;align-items:center;min-width:0">
-        <div class="tx-icon">${cat?.icon||'💰'}</div>
+        <div class="tx-icon">${t.type==='prijem'?'💰':cat?.icon||'📦'}</div>
         <div style="min-width:0">
-          <div class="tx-name">${cat?.name||'Ostatní'}</div>
+          <div class="tx-name">${t.type==='prijem'?'Příjem':cat?.name||'Ostatní'}</div>
           <div class="tx-sub">${acc?.name||''}${t.note?' · '+t.note:''} · ${t.date}</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <div class="tx-amount ${t.type==='prijem'?'pos':'neg'}">${t.type==='prijem'?'+':'−'}${fmt(t.amount)}</div>
-        <button onclick="deleteTx('${t.id}','${t.accountId}',${t.amount},'${t.type}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:#ddd;padding:2px">✕</button>
+        <button onclick="event.stopPropagation();deleteTx('${t.id}','${t.accountId}',${t.amount},'${t.type}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:#ddd;padding:2px">✕</button>
       </div>
     </div>`;
   }).join('');
@@ -457,6 +507,8 @@ async function renameAcc(id,name){
 }
 
 function openAdd(preselectAccId){
+  document.getElementById('m-tx-title').textContent='Nová transakce';
+  document.getElementById('f-edit-id').value='';
   document.getElementById('f-acc').innerHTML=accounts.map(a=>`<option value="${a.id}">${a.name}</option>`).join('');
   document.getElementById('f-cat').innerHTML=categories.map(c=>`<option value="${c.id}">${c.icon} ${c.name}</option>`).join('');
   document.getElementById('f-date').value=new Date().toISOString().slice(0,10);
@@ -466,27 +518,67 @@ function openAdd(preselectAccId){
   setType('vydaj');
   document.getElementById('m-tx').classList.add('open');
 }
+
+function openEdit(txId){
+  const t=transactions.find(x=>x.id===txId);
+  if(!t)return;
+  document.getElementById('m-tx-title').textContent='Upravit záznam';
+  document.getElementById('f-edit-id').value=t.id;
+  document.getElementById('f-edit-old-acc').value=t.accountId;
+  document.getElementById('f-edit-old-amt').value=t.amount;
+  document.getElementById('f-edit-old-type').value=t.type;
+  document.getElementById('f-acc').innerHTML=accounts.map(a=>`<option value="${a.id}">${a.name}</option>`).join('');
+  document.getElementById('f-cat').innerHTML=categories.map(c=>`<option value="${c.id}">${c.icon} ${c.name}</option>`).join('');
+  document.getElementById('f-acc').value=t.accountId;
+  document.getElementById('f-cat').value=t.categoryId||'';
+  document.getElementById('f-date').value=t.date;
+  document.getElementById('f-amt').value=t.amount;
+  document.getElementById('f-note').value=t.note||'';
+  setType(t.type);
+  document.getElementById('m-tx').classList.add('open');
+}
+
 function closeM(id){document.getElementById(id).classList.remove('open');}
+
 function setType(t){
   txType=t;
   document.getElementById('btn-v').classList.toggle('active',t==='vydaj');
   document.getElementById('btn-p').classList.toggle('active',t==='prijem');
+  document.getElementById('f-cat').style.display=t==='prijem'?'none':'block';
 }
 
 async function saveTx(){
   const amount=parseFloat(document.getElementById('f-amt').value);
   if(!amount||isNaN(amount)){toast('Zadej částku');return;}
   const accountId=document.getElementById('f-acc').value;
-  const categoryId=document.getElementById('f-cat').value;
+  const categoryId=txType==='vydaj'?document.getElementById('f-cat').value:'';
   const date=document.getElementById('f-date').value;
   const note=document.getElementById('f-note').value.trim();
   const type=txType;
+  const editId=document.getElementById('f-edit-id').value;
   closeM('m-tx');
-  toast(type==='vydaj'?'Výdaj přidán ✓':'Příjem přidán ✓');
-  const ts=firebase.firestore.FieldValue.serverTimestamp();
-  db.collection('transactions').add({type,amount,accountId,categoryId,date,note,createdAt:ts});
-  const delta=type==='prijem'?amount:-amount;
-  db.collection('accounts').doc(accountId).update({balance:firebase.firestore.FieldValue.increment(delta)});
+
+  if(editId){
+    // Editace – vrátit starou hodnotu, zapsat novou
+    const oldAcc=document.getElementById('f-edit-old-acc').value;
+    const oldAmt=parseFloat(document.getElementById('f-edit-old-amt').value);
+    const oldType=document.getElementById('f-edit-old-type').value;
+    toast('Záznam upraven ✓');
+    const ts=firebase.firestore.FieldValue.serverTimestamp();
+    db.collection('transactions').doc(editId).update({type,amount,accountId,categoryId,date,note,updatedAt:ts});
+    // Vrátit starou změnu na původním účtu
+    const revert=oldType==='prijem'?-oldAmt:oldAmt;
+    db.collection('accounts').doc(oldAcc).update({balance:firebase.firestore.FieldValue.increment(revert)});
+    // Přidat novou změnu na novém účtu
+    const delta=type==='prijem'?amount:-amount;
+    db.collection('accounts').doc(accountId).update({balance:firebase.firestore.FieldValue.increment(delta)});
+  } else {
+    toast(type==='vydaj'?'Výdaj přidán ✓':'Příjem přidán ✓');
+    const ts=firebase.firestore.FieldValue.serverTimestamp();
+    db.collection('transactions').add({type,amount,accountId,categoryId,date,note,createdAt:ts});
+    const delta=type==='prijem'?amount:-amount;
+    db.collection('accounts').doc(accountId).update({balance:firebase.firestore.FieldValue.increment(delta)});
+  }
 }
 
 async function saveCat(){
