@@ -599,6 +599,27 @@ async function saveAcc(){
 
 document.querySelectorAll('.overlay').forEach(el=>el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('open');}));
 
+// Swipe mezi záložkami
+const VIEWS=['prehled','ucty','transakce','kategorie','nastaveni'];
+let swipeX=0, swipeY=0;
+document.getElementById('content').addEventListener('touchstart',e=>{
+  swipeX=e.touches[0].clientX;
+  swipeY=e.touches[0].clientY;
+},{passive:true});
+document.getElementById('content').addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-swipeX;
+  const dy=e.changedTouches[0].clientY-swipeY;
+  if(Math.abs(dx)<50||Math.abs(dx)<Math.abs(dy)*1.5)return; // příliš krátký nebo vertikální
+  const idx=VIEWS.indexOf(view);
+  if(dx<0&&idx<VIEWS.length-1){
+    const btn=document.querySelectorAll('.nav button')[idx+1];
+    go(VIEWS[idx+1],btn);
+  } else if(dx>0&&idx>0){
+    const btn=document.querySelectorAll('.nav button')[idx-1];
+    go(VIEWS[idx-1],btn);
+  }
+},{passive:true});
+
 const now=new Date();
 document.getElementById('hdr-month').textContent=`${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
 init();
