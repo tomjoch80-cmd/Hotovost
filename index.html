@@ -324,9 +324,10 @@ function vPrehled(){
     </div>
   </div>`;
 
+  const bankAcc=accounts.find(a=>a.isBank);
   h+=`<div class="card">
     <div class="card-title">Účty</div>
-    ${accounts.map(a=>{
+    ${accounts.filter(a=>!a.isBank).map(a=>{
       const aInc=mTx.filter(t=>t.type==='prijem'&&t.accountId===a.id).reduce((s,t)=>s+t.amount,0);
       const aExp=mTx.filter(t=>t.type==='vydaj'&&t.accountId===a.id).reduce((s,t)=>s+t.amount,0);
       const aBil=aInc-aExp;
@@ -354,6 +355,10 @@ function vPrehled(){
         </div>
       </div>`;
     }).join('')}
+    ${bankAcc?`<div onclick="goUcty()" style="padding:10px 0 2px;border-top:2px solid #f0f0f0;margin-top:4px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+      <div style="display:flex;align-items:center;gap:8px"><span style="font-size:16px">🏦</span><span style="font-weight:700;font-size:14px">${bankAcc.name}</span></div>
+      <span style="font-weight:700;font-size:15px" class="${(bankAcc.balance||0)>=0?'pos':'neg'}">${fmt(bankAcc.balance||0)}</span>
+    </div>`:''}
   </div>`;
 
   h+=`<div class="card">
@@ -493,9 +498,9 @@ function vTx(){
     const cat=categories.find(c=>c.id===t.categoryId);
     return`<div class="tx-item" onclick="openEdit('${t.id}')" style="cursor:pointer">
       <div style="display:flex;align-items:center;min-width:0">
-        <div class="tx-icon">${t.type==='prijem'?'💰':cat?.icon||'📦'}</div>
+        <div class="tx-icon">${t.type==='prijem'?'💰':t.type==='prevod'?'🏦':cat?.icon||'📦'}</div>
         <div style="min-width:0">
-          <div class="tx-name">${t.type==='prijem'?'Příjem':cat?.name||'Ostatní'}</div>
+          <div class="tx-name">${t.type==='prijem'?'Příjem':t.type==='prevod'?'Převod z banky':cat?.name||'Ostatní'}</div>
           <div class="tx-sub">${acc?.name||''}${t.note?' · '+t.note:''} · ${t.date}</div>
         </div>
       </div>
@@ -541,15 +546,23 @@ function vNastaveni(){
     h+=`<div class="setting-row">
       <div style="display:flex;align-items:center;gap:8px">
         <div style="width:11px;height:11px;border-radius:50%;background:${a.color}"></div>
-        <span style="font-weight:600;font-size:14px">${a.name}</span>
+        <span style="font-weight:600;font-size:14px">${a.name}${a.isBank?' 🏦':''}</span>
       </div>
       <input class="setting-input" value="${a.name}" onchange="renameAcc('${a.id}',this.value)">
     </div>`;
   });
   h+=`</div>
-  <div class="card"><div class="card-title">Přidat na plochu (Android)</div>
-    <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px">V Chrome: klikni na menu ⋮ → <strong>Přidat na plochu</strong> nebo <strong>Nainstalovat aplikaci</strong>.</p>
-    <p style="font-size:13px;color:var(--muted);line-height:1.7">Na iPhone: klikni na sdílet 📤 → <strong>Přidat na plochu</strong>.</p>
+  <div class="card">
+    <div class="card-title">Bankovní účet</div>
+    <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:12px">Vyber který účet funguje jako banka – při každém příjmu tě appka nabídne odečíst stejnou částku z tohoto účtu.</p>
+    <select onchange="setBankAcc(this.value)" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--border);font-size:14px;background:#fff">
+      <option value="">— žádný —</option>
+      ${accounts.map(a=>`<option value="${a.id}" ${a.isBank?'selected':''}>${a.name}</option>`).join('')}
+    </select>
+  </div>
+  <div class="card"><div class="card-title">Přidat na plochu</div>
+    <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:6px">Android (Chrome): menu ⋮ → <strong>Přidat na plochu</strong>.</p>
+    <p style="font-size:13px;color:var(--muted);line-height:1.7">iPhone (Safari): sdílet 📤 → <strong>Přidat na plochu</strong>.</p>
   </div>
   <div class="card"><div class="card-title">O aplikaci</div>
     <p style="font-size:13px;color:var(--muted);line-height:1.7">Data jsou uložena v cloudu a sdílená v reálném čase.</p>
@@ -561,6 +574,16 @@ async function renameAcc(id,name){
   if(!name.trim())return;
   await db.collection('accounts').doc(id).update({name:name.trim()});
   toast('Jméno uloženo');
+}
+
+async function setBankAcc(id){
+  // Odznač všechny, označ vybraný
+  const batch=db.batch();
+  accounts.forEach(a=>{
+    batch.update(db.collection('accounts').doc(a.id),{isBank: a.id===id});
+  });
+  await batch.commit();
+  toast(id?'Bankovní účet nastaven ✓':'Bankovní účet odstraněn');
 }
 
 function openAdd(preselectAccId){
@@ -615,26 +638,41 @@ async function saveTx(){
   const editId=document.getElementById('f-edit-id').value;
   closeM('m-tx');
 
+  const ts=firebase.firestore.FieldValue.serverTimestamp();
+
   if(editId){
-    // Editace – vrátit starou hodnotu, zapsat novou
     const oldAcc=document.getElementById('f-edit-old-acc').value;
     const oldAmt=parseFloat(document.getElementById('f-edit-old-amt').value);
     const oldType=document.getElementById('f-edit-old-type').value;
     toast('Záznam upraven ✓');
-    const ts=firebase.firestore.FieldValue.serverTimestamp();
     db.collection('transactions').doc(editId).update({type,amount,accountId,categoryId,date,note,updatedAt:ts});
-    // Vrátit starou změnu na původním účtu
     const revert=oldType==='prijem'?-oldAmt:oldAmt;
     db.collection('accounts').doc(oldAcc).update({balance:firebase.firestore.FieldValue.increment(revert)});
-    // Přidat novou změnu na novém účtu
     const delta=type==='prijem'?amount:-amount;
     db.collection('accounts').doc(accountId).update({balance:firebase.firestore.FieldValue.increment(delta)});
   } else {
     toast(type==='vydaj'?'Výdaj přidán ✓':'Příjem přidán ✓');
-    const ts=firebase.firestore.FieldValue.serverTimestamp();
     db.collection('transactions').add({type,amount,accountId,categoryId,date,note,createdAt:ts});
     const delta=type==='prijem'?amount:-amount;
     db.collection('accounts').doc(accountId).update({balance:firebase.firestore.FieldValue.increment(delta)});
+
+    // Při příjmu nabídni převod z Banky (ale ne pokud je příjem přímo na bankovní účet)
+    if(type==='prijem'){
+      const bankAcc=accounts.find(a=>a.isBank);
+      if(bankAcc && bankAcc.id !== accountId){
+        const bankBal=bankAcc.balance||0;
+        const warning=bankBal<amount?`\n⚠️ V bance je jen ${fmt(bankBal)}!`:'';
+        const confirmed=confirm(`Převést ${fmt(amount)} z účtu "${bankAcc.name}"?${warning}`);
+        if(confirmed){
+          db.collection('accounts').doc(bankAcc.id).update({balance:firebase.firestore.FieldValue.increment(-amount)});
+          db.collection('transactions').add({
+            type:'prevod',amount,accountId:bankAcc.id,categoryId:'',
+            date,note:`Převod → ${accounts.find(a=>a.id===accountId)?.name||''}`,createdAt:ts
+          });
+          toast('Převod z banky proveden ✓');
+        }
+      }
+    }
   }
 }
 
