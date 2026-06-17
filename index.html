@@ -401,32 +401,63 @@ function renderChart(){
   if(chart){chart.destroy();chart=null;}
   const m=selMonth, y=selYear;
   const daysInMonth=new Date(y,m+1,0).getDate();
-  const days=[];
-  for(let d=1;d<=daysInMonth;d++){
-    const key=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const sum=transactions.filter(t=>t.date===key&&t.type==='vydaj').reduce((s,t)=>s+t.amount,0);
-    days.push({label:`${d}.`,sum});
+  const labels=[];
+  for(let d=1;d<=daysInMonth;d++) labels.push(`${d}.`);
+
+  // Jeden dataset per kategorie
+  const datasets=categories.map(cat=>{
+    const data=[];
+    for(let d=1;d<=daysInMonth;d++){
+      const key=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const sum=transactions.filter(t=>t.date===key&&t.type==='vydaj'&&t.categoryId===cat.id).reduce((s,t)=>s+t.amount,0);
+      data.push(sum||0);
+    }
+    const hasData=data.some(v=>v>0);
+    return hasData?{label:cat.name,data,backgroundColor:cat.color+'cc',borderRadius:2,borderSkipped:false,catId:cat.id}:null;
+  }).filter(Boolean);
+
+  if(!datasets.length){
+    datasets.push({label:'Výdaje',data:Array(daysInMonth).fill(0),backgroundColor:'#EF5350cc',borderRadius:2,borderSkipped:false});
   }
+
   chart=new Chart(canvas,{
     type:'bar',
-    data:{labels:days.map(d=>d.label),datasets:[{data:days.map(d=>d.sum),backgroundColor:'#EF5350cc',borderRadius:3,borderSkipped:false}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)}}},
-      scales:{x:{grid:{display:false},ticks:{font:{size:8},maxRotation:0,autoSkip:false,callback:(val,i)=>(i%2===0?days[i].label:'')}},y:{grid:{color:'#f0f0f0'},ticks:{font:{size:10},callback:v=>v===0?'0':v>=1000?(v/1000).toFixed(0)+'k':v}}}}
+    data:{labels,datasets},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          callbacks:{
+            title:items=>`${MONTHS[m]} – den ${items[0].label}`,
+            label:c=>` ${c.dataset.label}: ${fmt(c.raw)}`
+          }
+        }
+      },
+      scales:{
+        x:{stacked:true,grid:{display:false},ticks:{font:{size:8},maxRotation:0,autoSkip:false,callback:(val,i)=>(i%2===0?labels[i]:'')}},
+        y:{stacked:true,grid:{color:'#f0f0f0'},ticks:{font:{size:10},callback:v=>v===0?'0':v>=1000?(v/1000).toFixed(0)+'k':v}}
+      },
+      onClick:(e,els)=>{
+        if(!els.length)return;
+        const dayIdx=els[0].index;
+        const d=dayIdx+1;
+        const key=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        openDayDetail(key,d);
+      }
+    }
   });
 }
 
-let pieChart=null;
-function openPie(){
-  const m=selMonth, y=selYear;
-  const mTx=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===m&&d.getFullYear()===y&&t.type==='vydaj';});
+function openDayDetail(key, day){
+  const dayTx=transactions.filter(t=>t.date===key&&t.type==='vydaj');
+  if(!dayTx.length){toast('V tento den žádné výdaje');return;}
   const catMap={};
-  mTx.forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
+  dayTx.forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
   const rows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
-  if(!rows.length)return;
-
-  document.getElementById('pie-title').textContent=`Výdaje – ${MONTHS[m]} ${y}`;
+  const total=rows.reduce((s,r)=>s+r.sum,0);
+  document.getElementById('pie-title').textContent=`Výdaje – ${day}. ${MONTHS[selMonth]}`;
   document.getElementById('m-pie').classList.add('open');
-
   setTimeout(()=>{
     const canvas=document.getElementById('pieChart');
     if(!canvas)return;
@@ -439,9 +470,42 @@ function openPie(){
         datasets:[{data:rows.map(r=>r.sum),backgroundColor:rows.map(r=>r.cat.color),borderWidth:2,borderColor:'#fff'}]
       },
       options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.raw)} (${Math.round(c.raw/rows.reduce((s,r)=>s+r.sum,0)*100)}%)`}}}}
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.raw)} (${Math.round(c.raw/total*100)}%)`}}}}
     });
-    // legenda
+    document.getElementById('pie-legend').innerHTML=rows.map(r=>`
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+        <div style="width:10px;height:10px;border-radius:2px;background:${r.cat.color};flex-shrink:0"></div>
+        <span style="color:var(--muted)">${r.cat.icon} ${r.cat.name}</span>
+        <span style="font-weight:700;margin-left:auto">${fmt(r.sum)}</span>
+      </div>`).join('');
+  },150);
+}
+
+let pieChart=null;
+function openPie(){
+  const m=selMonth, y=selYear;
+  const mTx=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===m&&d.getFullYear()===y&&t.type==='vydaj';});
+  const catMap={};
+  mTx.forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
+  const rows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
+  if(!rows.length)return;
+  const total=rows.reduce((s,r)=>s+r.sum,0);
+  document.getElementById('pie-title').textContent=`Výdaje – ${MONTHS[m]} ${y}`;
+  document.getElementById('m-pie').classList.add('open');
+  setTimeout(()=>{
+    const canvas=document.getElementById('pieChart');
+    if(!canvas)return;
+    if(pieChart){pieChart.destroy();pieChart=null;}
+    canvas.style.display='block';
+    pieChart=new Chart(canvas,{
+      type:'doughnut',
+      data:{
+        labels:rows.map(r=>r.cat.name),
+        datasets:[{data:rows.map(r=>r.sum),backgroundColor:rows.map(r=>r.cat.color),borderWidth:2,borderColor:'#fff'}]
+      },
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.raw)} (${Math.round(c.raw/total*100)}%)`}}}}
+    });
     document.getElementById('pie-legend').innerHTML=rows.map(r=>`
       <div style="display:flex;align-items:center;gap:6px;font-size:12px">
         <div style="width:10px;height:10px;border-radius:2px;background:${r.cat.color};flex-shrink:0"></div>
