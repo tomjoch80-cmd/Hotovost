@@ -17,6 +17,23 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--blue:#1565C0;--blue2:#1E88E5;--green:#2E7D32;--red:#C62828;--bg:#f0f2f5;--card:#fff;--border:#e0e0e0;--text:#1a1a1a;--muted:#888;--r:14px}
+body.dark{--bg:#121212;--card:#1e1e1e;--border:#333;--text:#f0f0f0;--muted:#aaa}
+body.dark .header{background:linear-gradient(135deg,#0d47a1,#1565C0)}
+body.dark .nav{background:#1e1e1e}
+body.dark .modal{background:#1e1e1e}
+body.dark .modal input,body.dark .modal select{background:#2a2a2a;color:#f0f0f0;border-color:#444}
+body.dark .type-btn{background:#2a2a2a;color:#ccc}
+body.dark .btn-cancel{background:#2a2a2a;border-color:#444;color:#ccc}
+body.dark .tx-item{background:#1e1e1e}
+body.dark .cat-card{background:#1e1e1e}
+body.dark .setting-input{background:#2a2a2a;color:#f0f0f0;border-color:#444}
+body.dark .cat-bar-bg{background:#333}
+body.dark .acc-row{border-bottom-color:#333}
+body.dark .search-input{background:#2a2a2a;color:#f0f0f0;border-color:#444}
+/* search */
+.search-wrap{position:relative;margin-bottom:12px}
+.search-input{width:100%;padding:11px 14px 11px 40px;border-radius:12px;border:1px solid var(--border);font-size:14px;background:var(--card);color:var(--text)}
+.search-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none}
 body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);max-width:430px;margin:0 auto;min-height:100vh}
 .header{background:linear-gradient(135deg,#1565C0,#1E88E5);color:#fff;padding:14px 18px 12px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
 .header h1{font-size:19px;font-weight:700}
@@ -88,9 +105,10 @@ body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);ma
 
 <div class="header">
   <h1 id="hdr-title">Přehled</h1>
-  <div style="display:flex;align-items:center;gap:10px">
+  <div style="display:flex;align-items:center;gap:8px">
     <div class="sync"><div class="dot" id="dot"></div><span id="sync-lbl">spojuji...</span></div>
     <div style="font-size:12px;opacity:.8" id="hdr-month"></div>
+    <button onclick="toggleDark()" id="dark-btn" style="background:none;border:none;cursor:pointer;font-size:18px;color:#fff;padding:2px 4px" title="Tmavý režim">🌙</button>
   </div>
 </div>
 
@@ -170,6 +188,33 @@ body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);ma
   </div>
 </div>
 
+<!-- MĚSÍČNÍ POZNÁMKA -->
+<div class="overlay" id="m-note">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="modal-title" style="margin:0" id="note-title">Poznámka k měsíci</div>
+      <button onclick="closeM('m-note')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <textarea id="note-text" rows="5" placeholder="Co bylo drahé, co se ušetřilo..." style="width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--border);font-size:14px;resize:none;background:var(--card);color:var(--text)"></textarea>
+    <div class="modal-btns" style="margin-top:10px">
+      <button class="btn-cancel" onclick="closeM('m-note')">Zrušit</button>
+      <button class="btn-save" onclick="saveNote()">Uložit</button>
+    </div>
+  </div>
+</div>
+
+<!-- SROVNÁNÍ MĚSÍCŮ -->
+<div class="overlay" id="m-compare" style="align-items:center">
+  <div class="modal" style="border-radius:20px;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="modal-title" style="margin:0">Srovnání měsíců</div>
+      <button onclick="closeM('m-compare')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div style="height:220px;position:relative"><canvas id="compareChart"></canvas></div>
+    <div id="compare-legend" style="margin-top:12px;font-size:13px"></div>
+  </div>
+</div>
+
 <script>
 const firebaseConfig = {
   apiKey: "AIzaSyDtsIlc1Zwy4mXD4FF0VmjpLIzlG-YlFrU",
@@ -182,14 +227,22 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-let accounts=[], categories=[], transactions=[];
-let view='prehled', txType='vydaj', chart=null, ready=false;
+let accounts=[], categories=[], transactions=[], monthNotes={};
+let view='prehled', txType='vydaj', chart=null, ready=false, searchQ='', compareChart=null;
 const _now=new Date();
 let selMonth=_now.getMonth(), selYear=_now.getFullYear();
 const MONTHS=['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
 const ACC_COLORS=['#1976D2','#C2185B','#388E3C','#F57C00','#5C6BC0','#00838F'];
 const CAT_COLORS=['#4CAF50','#9C27B0','#2196F3','#FF5722','#F44336','#FF9800','#607D8B','#E91E63','#00BCD4','#795548'];
 function fmt(n){return Number(n).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2})+' Kč';}
+
+// Dark mode
+function toggleDark(){
+  const dark=document.body.classList.toggle('dark');
+  localStorage.setItem('dark',dark?'1':'');
+  document.getElementById('dark-btn').textContent=dark?'☀️':'🌙';
+}
+if(localStorage.getItem('dark')){document.body.classList.add('dark');}
 
 function toast(msg){
   const el=document.getElementById('toast');
@@ -241,6 +294,11 @@ function init(){
       render();
     }
   }
+  db.collection('notes').onSnapshot(s=>{
+    monthNotes={};
+    s.docs.forEach(d=>{monthNotes[d.id]=d.data().text||'';});
+    if(ready)render();
+  },()=>{});
   db.collection('accounts').orderBy('createdAt').onSnapshot(s=>{
     accounts=s.docs.map(d=>({id:d.id,...d.data()}));
     loaded.a=true; if(ready)render(); else checkReady();
@@ -312,12 +370,27 @@ function vPrehled(){
 
   let h=`
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <button onclick="changeMonth(-1)" style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-size:18px;cursor:pointer;box-shadow:0 1px 4px #0001">‹</button>
-    <div style="font-weight:700;font-size:17px">${MONTHS[m]} ${y}</div>
-    <button onclick="changeMonth(1)" ${isCurrent?'disabled style="opacity:.3;cursor:default"':''} style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-size:18px;cursor:pointer;box-shadow:0 1px 4px #0001">›</button>
-  </div>
+    <button onclick="changeMonth(-1)" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-size:18px;cursor:pointer;box-shadow:0 1px 4px #0001;color:var(--text)">‹</button>
+    <div style="text-align:center">
+      <div style="font-weight:700;font-size:17px;color:var(--text)">${MONTHS[m]} ${y}</div>
+      <div style="display:flex;gap:8px;margin-top:4px;justify-content:center">
+        <button onclick="openNote()" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--blue)">💬 poznámka</button>
+        <button onclick="openCompare()" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--blue)">📊 srovnání</button>
+      </div>
+    </div>
+    <button onclick="changeMonth(1)" ${isCurrent?'disabled style="opacity:.3;cursor:default"':''} style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-size:18px;cursor:pointer;box-shadow:0 1px 4px #0001;color:var(--text)">›</button>
+  </div>`;
 
-  <div class="card">
+  const noteKey=`${y}-${String(m+1).padStart(2,'0')}`;
+  const noteText=monthNotes[noteKey];
+  if(noteText){
+    h+=`<div class="card" onclick="openNote()" style="cursor:pointer;border-left:3px solid var(--blue)">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">💬 Poznámka</div>
+      <div style="font-size:13px;line-height:1.5">${noteText}</div>
+    </div>`;
+  }
+
+  h+=`<div class="card">
     <div class="card-title">Shrnutí</div>
     <div class="sum-grid">
       <div class="sum-col"><div class="sum-label">Příjmy</div><div class="sum-val pos">+${fmt(inc)}</div></div>
@@ -420,9 +493,27 @@ function renderChart(){
     datasets.push({label:'Výdaje',data:Array(daysInMonth).fill(0),backgroundColor:'#EF5350cc',borderRadius:2,borderSkipped:false});
   }
 
+  // Trendová čára – průměrná denní útrata (jen dny co uplynuly)
+  const today=new Date();
+  const passedDays=(selMonth===today.getMonth()&&selYear===today.getFullYear())?today.getDate():daysInMonth;
+  const totalExp=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===m&&d.getFullYear()===y&&t.type==='vydaj';}).reduce((s,t)=>s+t.amount,0);
+  const avgDay=passedDays>0?totalExp/passedDays:0;
+  const trendDataset={
+    label:'Průměr/den',
+    data:Array(daysInMonth).fill(avgDay),
+    type:'line',
+    borderColor:'#FF9800',
+    borderWidth:2,
+    borderDash:[4,4],
+    pointRadius:0,
+    fill:false,
+    tension:0,
+    order:0
+  };
+
   chart=new Chart(canvas,{
     type:'bar',
-    data:{labels,datasets},
+    data:{labels,datasets:[...datasets,trendDataset]},
     options:{
       responsive:true,maintainAspectRatio:false,
       plugins:{
@@ -568,8 +659,22 @@ async function deleteAcc(id){
 }
 
 function vTx(){
-  if(!transactions.length)return`<div class="empty">Zatím žádné záznamy.<br>Stiskni + pro přidání.</div>`;
-  return transactions.map(t=>{
+  const filtered=transactions.filter(t=>{
+    if(!searchQ)return true;
+    const q=searchQ.toLowerCase();
+    const cat=categories.find(c=>c.id===t.categoryId);
+    const acc=accounts.find(a=>a.id===t.accountId);
+    return (t.note||'').toLowerCase().includes(q)||
+           String(t.amount).includes(q)||
+           (cat?.name||'').toLowerCase().includes(q)||
+           (acc?.name||'').toLowerCase().includes(q);
+  });
+  let h=`<div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input class="search-input" placeholder="Hledat podle poznámky, kategorie, částky..." value="${searchQ}" oninput="searchQ=this.value;render()">
+  </div>`;
+  if(!filtered.length) return h+`<div class="empty">${searchQ?'Nic nenalezeno.':'Zatím žádné záznamy.<br>Stiskni + pro přidání.'}</div>`;
+  return h+filtered.map(t=>{
     const acc=accounts.find(a=>a.id===t.accountId);
     const cat=categories.find(c=>c.id===t.categoryId);
     return`<div class="tx-item" onclick="openEdit('${t.id}')" style="cursor:pointer">
@@ -772,7 +877,128 @@ async function saveAcc(){
   db.collection('accounts').add({name,color:ACC_COLORS[accounts.length%ACC_COLORS.length],balance:0,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
 }
 
-document.querySelectorAll('.overlay').forEach(el=>el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('open');}));
+function openNote(){
+  const key=`${selYear}-${String(selMonth+1).padStart(2,'0')}`;
+  document.getElementById('note-title').textContent=`Poznámka – ${MONTHS[selMonth]} ${selYear}`;
+  document.getElementById('note-text').value=monthNotes[key]||'';
+  document.getElementById('m-note').classList.add('open');
+}
+async function saveNote(){
+  const key=`${selYear}-${String(selMonth+1).padStart(2,'0')}`;
+  const text=document.getElementById('note-text').value.trim();
+  await db.collection('notes').doc(key).set({text,updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+  closeM('m-note');
+  toast('Poznámka uložena ✓');
+}
+
+function openCompare(){
+  document.getElementById('m-compare').classList.add('open');
+  setTimeout(()=>{
+    const canvas=document.getElementById('compareChart');
+    if(!canvas)return;
+    if(compareChart){compareChart.destroy();compareChart=null;}
+
+    const months=[];
+    for(let i=5;i>=0;i--){
+      let mo=selMonth-i, yr=selYear;
+      if(mo<0){mo+=12;yr--;}
+      months.push({label:`${MONTHS[mo].slice(0,3)} ${yr}`,mo,yr});
+    }
+
+    // Stacked kategorie
+    const catDatasets=categories.map(cat=>{
+      const data=months.map(({mo,yr})=>
+        transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj'&&t.categoryId===cat.id;}).reduce((s,t)=>s+t.amount,0)
+      );
+      return data.some(v=>v>0)?{label:cat.name,data,backgroundColor:cat.color+'cc',borderRadius:0,borderSkipped:false,stack:'vydaje'}:null;
+    }).filter(Boolean);
+
+    // Příjmy jako čára
+    const incData=months.map(({mo,yr})=>
+      transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='prijem'&&accounts.find(a=>a.id===t.accountId)?.isBank;}).reduce((s,t)=>s+t.amount,0)
+    );
+    const incDataset={
+      label:'Vklad',data:incData,type:'line',
+      borderColor:'#43A047',borderWidth:2,pointRadius:4,
+      pointBackgroundColor:'#43A047',fill:false,tension:0.1,order:0
+    };
+
+    // Celkové součty pro labely
+    const totals=months.map(({mo,yr})=>
+      transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj';}).reduce((s,t)=>s+t.amount,0)
+    );
+
+    compareChart=new Chart(canvas,{
+      type:'bar',
+      data:{labels:months.map(m=>m.label),datasets:[...catDatasets,incDataset]},
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fmt(c.raw)}`}},
+          // Celkový součet nad sloupcem
+          afterDraw: undefined
+        },
+        scales:{
+          x:{stacked:true,grid:{display:false},ticks:{font:{size:10}}},
+          y:{stacked:true,grid:{color:'#f0f0f0'},ticks:{font:{size:10},callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}}
+        }
+      },
+      plugins:[{
+        id:'totalLabels',
+        afterDatasetsDraw(ch){
+          const ctx=ch.ctx;
+          ctx.save();
+          ctx.textAlign='center';
+          months.forEach((_,i)=>{
+            // Součet výdajů nad sloupcem
+            if(totals[i]&&catDatasets.length>0){
+              let minY=Infinity;
+              catDatasets.forEach((_,di)=>{
+                const m2=ch.getDatasetMeta(di);
+                if(m2.data[i]&&m2.data[i].y<minY)minY=m2.data[i].y;
+              });
+              const meta0=ch.getDatasetMeta(0);
+              if(meta0.data[i]){
+                ctx.font='bold 9px Segoe UI';
+                ctx.fillStyle='#555';
+                const x=meta0.data[i].x;
+                ctx.fillText(totals[i]>=1000?(totals[i]/1000).toFixed(1)+'k':totals[i],x,minY-4);
+              }
+            }
+            // Číslo u bodu vkladu
+            if(incData[i]){
+              const incMeta=ch.getDatasetMeta(catDatasets.length);
+              if(incMeta.data[i]){
+                const x=incMeta.data[i].x;
+                const y=incMeta.data[i].y;
+                ctx.font='bold 9px Segoe UI';
+                ctx.fillStyle='#2E7D32';
+                ctx.fillText(incData[i]>=1000?(incData[i]/1000).toFixed(1)+'k':incData[i],x,y-8);
+              }
+            }
+          });
+          ctx.restore();
+        }
+      }]
+    });
+
+    const usedCats=categories.filter(cat=>months.some(({mo,yr})=>transactions.some(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj'&&t.categoryId===cat.id;})));
+    document.getElementById('compare-legend').innerHTML=`
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+        <div style="display:flex;align-items:center;gap:4px;font-size:11px">
+          <div style="width:20px;height:2px;background:#43A047;flex-shrink:0"></div>
+          <span>Vklad</span>
+        </div>
+        ${usedCats.map(c=>`<div style="display:flex;align-items:center;gap:4px;font-size:11px">
+          <div style="width:10px;height:10px;border-radius:2px;background:${c.color};flex-shrink:0"></div>
+          <span>${c.icon} ${c.name}</span>
+        </div>`).join('')}
+      </div>`;
+  },150);
+}
+
+
 
 // Swipe mezi záložkami
 const VIEWS=['prehled','ucty','transakce','kategorie','nastaveni'];
