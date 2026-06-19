@@ -153,10 +153,15 @@ body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);ma
 
 <!-- PIE CHART MODAL -->
 <div class="overlay" id="m-pie" style="z-index:300">
-  <div class="modal" style="padding-bottom:30px">
+  <div class="modal" id="pie-touch-area" style="padding-bottom:30px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div class="modal-title" style="margin:0" id="pie-title">Výdaje podle kategorií</div>
       <button onclick="closeM('m-pie')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div id="pie-nav" style="display:none;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <button onclick="pieSwipe(-1)" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:16px;cursor:pointer;color:var(--text)">‹</button>
+      <span style="font-size:12px;color:var(--muted)" id="pie-nav-hint">přejeď pro jiný den</span>
+      <button onclick="pieSwipe(1)" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:16px;cursor:pointer;color:var(--text)">›</button>
     </div>
     <div style="height:220px;position:relative;width:100%"><canvas id="pieChart" style="max-height:220px"></canvas></div>
     <div id="pie-legend" style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
@@ -209,10 +214,15 @@ body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);ma
 
 <!-- SROVNÁNÍ MĚSÍCŮ -->
 <div class="overlay" id="m-compare" style="align-items:center">
-  <div class="modal" style="border-radius:20px;max-height:85vh;overflow-y:auto">
+  <div class="modal" id="compare-touch-area" style="border-radius:20px;max-height:85vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div class="modal-title" style="margin:0">Srovnání měsíců</div>
       <button onclick="closeM('m-compare')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <button onclick="shiftCompare(-1)" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:16px;cursor:pointer;color:var(--text)">‹</button>
+      <span style="font-size:11px;color:var(--muted)" id="compare-range">posledních 6 měsíců</span>
+      <button onclick="shiftCompare(1)" id="compare-next" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:16px;cursor:pointer;color:var(--text)">›</button>
     </div>
     <div style="height:220px;position:relative"><canvas id="compareChart"></canvas></div>
     <div id="compare-legend" style="margin-top:12px;font-size:13px"></div>
@@ -239,6 +249,19 @@ const MONTHS=['Leden','Únor','Březen','Duben','Květen','Červen','Červenec',
 const ACC_COLORS=['#1976D2','#C2185B','#388E3C','#F57C00','#5C6BC0','#00838F'];
 const CAT_COLORS=['#4CAF50','#9C27B0','#2196F3','#FF5722','#F44336','#FF9800','#607D8B','#E91E63','#00BCD4','#795548'];
 function fmt(n){return Number(n).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2})+' Kč';}
+
+// Vždy počítej zůstatek z transakcí (jediný zdroj pravdy)
+function calcBalance(accountId, upToDate){
+  let bal=0;
+  transactions.forEach(t=>{
+    if(t.accountId!==accountId)return;
+    if(upToDate&&t.date>upToDate)return;
+    if(t.type==='prijem') bal+=t.amount;
+    else if(t.type==='vydaj') bal-=t.amount;
+    else if(t.type==='prevod') bal-=t.amount; // odchozí převod z banky
+  });
+  return bal;
+}
 
 // Dark mode
 function toggleDark(){
@@ -361,10 +384,12 @@ function vPrehled(){
   const isCurrent=(m===now.getMonth()&&y===now.getFullYear());
   const mTx=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===m&&d.getFullYear()===y;});
   const bankAcc=accounts.find(a=>a.isBank)||null;
-  const inc=mTx.filter(t=>t.type==='prijem'&&bankAcc&&t.accountId===bankAcc.id).reduce((s,t)=>s+t.amount,0);
-  const exp=mTx.filter(t=>t.type==='vydaj').reduce((s,t)=>s+t.amount,0);
+  const endOfMonth=new Date(y,m+1,0).toISOString().slice(0,10);
+  const allTx=transactions.filter(t=>t.date<=endOfMonth);
+  const inc=allTx.filter(t=>t.type==='prijem'&&bankAcc&&t.accountId===bankAcc.id).reduce((s,t)=>s+t.amount,0);
+  const exp=allTx.filter(t=>t.type==='vydaj').reduce((s,t)=>s+t.amount,0);
   const tot=inc-exp;
-  const totalBal=accounts.reduce((s,a)=>s+(a.balance||0),0);
+  const totalBal=accounts.reduce((s,a)=>s+calcBalance(a.id,endOfMonth),0);
   const catMap={};
   mTx.filter(t=>t.type==='vydaj').forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
   const catRows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
@@ -407,9 +432,10 @@ function vPrehled(){
   h+=`<div class="card">
     <div class="card-title">Účty</div>
     ${accounts.filter(a=>!a.isBank).map(a=>{
-      const aInc=mTx.filter(t=>(t.type==='prijem'||t.type==='prevod')&&t.accountId===a.id&&!a.isBank).reduce((s,t)=>s+t.amount,0);
-      const aExp=mTx.filter(t=>t.type==='vydaj'&&t.accountId===a.id).reduce((s,t)=>s+t.amount,0);
+      const aInc=allTx.filter(t=>(t.type==='prijem'||t.type==='prevod')&&t.accountId===a.id&&!a.isBank).reduce((s,t)=>s+t.amount,0);
+      const aExp=allTx.filter(t=>t.type==='vydaj'&&t.accountId===a.id).reduce((s,t)=>s+t.amount,0);
       const aBil=aInc-aExp;
+      const aCum=calcBalance(a.id,endOfMonth);
       return`<div onclick="goUcty()" style="padding:10px 0;border-bottom:1px solid #f5f5f5;cursor:pointer">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div style="display:flex;align-items:center;gap:8px">
@@ -437,15 +463,15 @@ function vPrehled(){
             <div style="font-size:13px;font-weight:600;color:var(--red)">−${fmt(aExp)}</div>
           </div>
           <div style="text-align:center;flex:1">
-            <div style="font-size:10px;color:var(--muted)">Bilance</div>
-            <div style="font-size:13px;font-weight:600" class="${aBil>=0?'pos':'neg'}">${aBil>=0?'+':''}${fmt(aBil)}</div>
+            <div style="font-size:10px;color:var(--muted)">Zůstatek</div>
+            <div style="font-size:13px;font-weight:600" class="${aCum>=0?'pos':'neg'}">${aCum>=0?'+':''}${fmt(aCum)}</div>
           </div>`}
         </div>
       </div>`;
     }).join('')}
     ${bankAcc2?`<div onclick="goUcty()" style="padding:10px 0 2px;border-top:2px solid #f0f0f0;margin-top:4px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
       <div style="display:flex;align-items:center;gap:8px"><span style="font-size:16px">🏦</span><span style="font-weight:700;font-size:14px">${bankAcc2.name}</span></div>
-      <span style="font-weight:700;font-size:15px" class="${(bankAcc2.balance||0)>=0?'pos':'neg'}">${fmt(bankAcc2.balance||0)}</span>
+      <span style="font-weight:700;font-size:15px" class="${calcBalance(bankAcc2.id,endOfMonth)>=0?'pos':'neg'}">${fmt(calcBalance(bankAcc2.id,endOfMonth))}</span>
     </div>`:''}
   </div>`;
 
@@ -545,39 +571,113 @@ function renderChart(){
 }
 
 function openDayDetail(key, day){
+  document.getElementById('pie-nav').style.display='flex';
+  document.getElementById('m-pie').classList.add('open');
+  setTimeout(()=>showPieForDay(key,day,selMonth,selYear),150);
+}
+
+let pieChart=null, pieDay=null, pieMo=null, pieYr=null, pieMode='day';
+
+function showPieForMonth(mo, yr){
+  const mTx=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj';});
+  const catMap={};
+  mTx.forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
+  const rows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
+  pieMode='month'; pieMo=mo; pieYr=yr; pieDay=null;
+  document.getElementById('pie-title').textContent=`${MONTHS[mo]} ${yr}`;
+  document.getElementById('pie-nav').style.display='flex';
+  document.getElementById('pie-nav-hint').textContent='přejeď pro jiný měsíc';
+  const canvas=document.getElementById('pieChart');
+  if(pieChart){pieChart.destroy();pieChart=null;}
+  if(!rows.length){
+    canvas.style.display='none';
+    document.getElementById('pie-legend').innerHTML=`<div style="text-align:center;color:var(--muted);padding:20px;grid-column:1/-1">Žádné výdaje</div>`;
+    return;
+  }
+  const total=rows.reduce((s,r)=>s+r.sum,0);
+  canvas.style.display='block';
+  pieChart=new Chart(canvas,{
+    type:'doughnut',
+    data:{labels:rows.map(r=>r.cat.name),datasets:[{data:rows.map(r=>r.sum),backgroundColor:rows.map(r=>r.cat.color),borderWidth:2,borderColor:'#fff'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.raw)} (${Math.round(c.raw/total*100)}%)`}}}}
+  });
+  document.getElementById('pie-legend').innerHTML=rows.map(r=>`
+    <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+      <div style="width:10px;height:10px;border-radius:2px;background:${r.cat.color};flex-shrink:0"></div>
+      <span style="color:var(--muted)">${r.cat.icon} ${r.cat.name}</span>
+      <span style="font-weight:700;margin-left:auto">${fmt(r.sum)}</span>
+    </div>`).join('');
+}
+
+function swipePieMonth(dir){
+  if(pieMo===null)return;
+  let newMo=pieMo+dir, newYr=pieYr;
+  if(newMo<0){newMo=11;newYr--;}
+  if(newMo>11){newMo=0;newYr++;}
+  // Nejde do budoucnosti za aktuální měsíc
+  const today=new Date();
+  if(newYr>today.getFullYear()||(newYr===today.getFullYear()&&newMo>today.getMonth()))return;
+  showPieForMonth(newMo,newYr);
+}
+
+function showPieForDay(key, day, mo, yr){
+  pieMode='day';
   const dayTx=transactions.filter(t=>t.date===key&&t.type==='vydaj');
-  if(!dayTx.length){toast('V tento den žádné výdaje');return;}
+  if(!dayTx.length){toast('V tento den žádné výdaje');return false;}
   const catMap={};
   dayTx.forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
   const rows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
+  if(!rows.length)return false;
   const total=rows.reduce((s,r)=>s+r.sum,0);
-  document.getElementById('pie-title').textContent=`Výdaje – ${day}. ${MONTHS[selMonth]}`;
-  document.getElementById('m-pie').classList.add('open');
-  setTimeout(()=>{
-    const canvas=document.getElementById('pieChart');
-    if(!canvas)return;
-    if(pieChart){pieChart.destroy();pieChart=null;}
-    canvas.style.display='block';
-    pieChart=new Chart(canvas,{
-      type:'doughnut',
-      data:{
-        labels:rows.map(r=>r.cat.name),
-        datasets:[{data:rows.map(r=>r.sum),backgroundColor:rows.map(r=>r.cat.color),borderWidth:2,borderColor:'#fff'}]
-      },
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.raw)} (${Math.round(c.raw/total*100)}%)`}}}}
-    });
-    document.getElementById('pie-legend').innerHTML=rows.map(r=>`
-      <div style="display:flex;align-items:center;gap:6px;font-size:12px">
-        <div style="width:10px;height:10px;border-radius:2px;background:${r.cat.color};flex-shrink:0"></div>
-        <span style="color:var(--muted)">${r.cat.icon} ${r.cat.name}</span>
-        <span style="font-weight:700;margin-left:auto">${fmt(r.sum)}</span>
-      </div>`).join('');
-  },150);
+  pieDay=day; pieMo=mo; pieYr=yr;
+  document.getElementById('pie-title').textContent=`${day}. ${MONTHS[mo]} ${yr}`;
+  document.getElementById('pie-nav').style.display='flex';
+  document.getElementById('pie-nav-hint').textContent='přejeď pro jiný den';
+  const canvas=document.getElementById('pieChart');
+  if(pieChart){pieChart.destroy();pieChart=null;}
+  canvas.style.display='block';
+  pieChart=new Chart(canvas,{
+    type:'doughnut',
+    data:{labels:rows.map(r=>r.cat.name),datasets:[{data:rows.map(r=>r.sum),backgroundColor:rows.map(r=>r.cat.color),borderWidth:2,borderColor:'#fff'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.raw)} (${Math.round(c.raw/total*100)}%)`}}}}
+  });
+  document.getElementById('pie-legend').innerHTML=rows.map(r=>`
+    <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+      <div style="width:10px;height:10px;border-radius:2px;background:${r.cat.color};flex-shrink:0"></div>
+      <span style="color:var(--muted)">${r.cat.icon} ${r.cat.name}</span>
+      <span style="font-weight:700;margin-left:auto">${fmt(r.sum)}</span>
+    </div>`).join('');
+  return true;
 }
 
-let pieChart=null;
+function pieSwipe(dir){
+  if(pieMode==='month') swipePieMonth(dir);
+  else swipePieDay(dir);
+}
+
+function swipePieDay(dir){
+  if(pieDay===null)return;
+  const daysInMonth=new Date(pieYr,pieMo+1,0).getDate();
+  let newDay=pieDay+dir;
+  if(newDay<1||newDay>daysInMonth)return;
+  const key=`${pieYr}-${String(pieMo+1).padStart(2,'0')}-${String(newDay).padStart(2,'0')}`;
+  const hasTx=transactions.some(t=>t.date===key&&t.type==='vydaj');
+  if(hasTx){
+    showPieForDay(key,newDay,pieMo,pieYr);
+  } else {
+    // Žádné výdaje – ukáž prázdný stav ale aktualizuj den
+    pieDay=newDay;
+    document.getElementById('pie-title').textContent=`${newDay}. ${MONTHS[pieMo]} ${pieYr}`;
+    if(pieChart){pieChart.destroy();pieChart=null;}
+    document.getElementById('pie-legend').innerHTML=`<div style="text-align:center;color:var(--muted);padding:20px;grid-column:1/-1">Žádné výdaje</div>`;
+    const canvas=document.getElementById('pieChart');
+    canvas.style.display='none';
+  }
+}
+
 function openPie(){
+  pieDay=null;
+  document.getElementById('pie-nav').style.display='none';
   const m=selMonth, y=selYear;
   const mTx=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===m&&d.getFullYear()===y&&t.type==='vydaj';});
   const catMap={};
@@ -611,7 +711,7 @@ function openPie(){
 }
 
 function vUcty(){
-  const tot=accounts.reduce((s,a)=>s+(a.balance||0),0);
+  const tot=accounts.reduce((s,a)=>s+calcBalance(a.id),0);
   let h=`<div class="card" style="display:flex;justify-content:space-between;align-items:center">
     <span style="color:var(--muted)">Celkový zůstatek</span>
     <span style="font-weight:700;font-size:17px" class="${tot>=0?'pos':'neg'}">${fmt(tot)}</span>
@@ -619,6 +719,7 @@ function vUcty(){
   accounts.forEach(a=>{
     const aTx=transactions.filter(t=>t.accountId===a.id);
     const hasTx=aTx.length>0;
+    const aBal=calcBalance(a.id);
     h+=`<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:10px">
@@ -626,7 +727,7 @@ function vUcty(){
           <span style="font-weight:700;font-size:16px">${a.name}</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-weight:700;font-size:18px" class="${(a.balance||0)>=0?'pos':'neg'}">${fmt(a.balance||0)}</span>
+          <span style="font-weight:700;font-size:18px" class="${aBal>=0?'pos':'neg'}">${fmt(aBal)}</span>
           ${!hasTx?`<button onclick="deleteAcc('${a.id}')" style="background:none;border:1px solid #ffcdd2;color:var(--red);border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">Smazat</button>`:''}
         </div>
       </div>`;
@@ -662,8 +763,15 @@ async function deleteAcc(id){
   toast('Účet smazán');
 }
 
+let txMonthFilter=false; // false = vše, true = jen vybraný měsíc
+
 function vTx(){
-  const filtered=transactions.filter(t=>{
+  const monthTxs=transactions.filter(t=>{
+    if(!txMonthFilter)return true;
+    const d=new Date(t.date);
+    return d.getMonth()===selMonth&&d.getFullYear()===selYear;
+  });
+  const filtered=monthTxs.filter(t=>{
     if(!searchQ)return true;
     const q=searchQ.toLowerCase();
     const cat=categories.find(c=>c.id===t.categoryId);
@@ -673,12 +781,71 @@ function vTx(){
            (cat?.name||'').toLowerCase().includes(q)||
            (acc?.name||'').toLowerCase().includes(q);
   });
-  let h=`<div class="search-wrap">
+  let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <button onclick="changeTxMonth(-1)" style="display:${txMonthFilter?'block':'none'};background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:15px;cursor:pointer;color:var(--text)">‹</button>
+    <button onclick="toggleTxFilter()" style="flex:1;padding:9px;border-radius:10px;border:1px solid var(--border);background:${txMonthFilter?'var(--blue)':'var(--card)'};color:${txMonthFilter?'#fff':'var(--text)'};font-size:13px;font-weight:600;cursor:pointer">
+      ${txMonthFilter?`📅 ${MONTHS[selMonth]} ${selYear}`:'📋 Všechny záznamy'}
+    </button>
+    <button onclick="changeTxMonth(1)" style="display:${txMonthFilter?'block':'none'};background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:15px;cursor:pointer;color:var(--text)">›</button>
+  </div>
+  <div class="search-wrap">
     <span class="search-icon">🔍</span>
-    <input class="search-input" placeholder="Hledat podle poznámky, kategorie, částky..." value="${searchQ}" oninput="searchQ=this.value;render()">
-  </div>`;
-  if(!filtered.length) return h+`<div class="empty">${searchQ?'Nic nenalezeno.':'Zatím žádné záznamy.<br>Stiskni + pro přidání.'}</div>`;
-  return h+filtered.map(t=>{
+    <input class="search-input" id="search-input" placeholder="Hledat podle poznámky, kategorie, částky..." value="${searchQ}" oninput="filterTx(this.value)">
+  </div><div id="tx-list">`;
+  if(!filtered.length){h+=`<div class="empty">${searchQ?'Nic nenalezeno.':txMonthFilter?'Žádné záznamy v tomto měsíci.':'Zatím žádné záznamy.<br>Stiskni + pro přidání.'}</div>`;}
+  else{filtered.forEach(t=>{
+    const acc=accounts.find(a=>a.id===t.accountId);
+    const cat=categories.find(c=>c.id===t.categoryId);
+    h+=`<div class="tx-item" onclick="openEdit('${t.id}')" style="cursor:pointer">
+      <div style="display:flex;align-items:center;min-width:0">
+        <div class="tx-icon">${t.type==='prijem'?'💰':t.type==='prevod'?'🏦':cat?.icon||'📦'}</div>
+        <div style="min-width:0">
+          <div class="tx-name">${t.type==='prijem'?'Příjem':t.type==='prevod'?'Převod z banky':cat?.name||'Ostatní'}</div>
+          <div class="tx-sub">${acc?.name||''}${t.note?' · '+t.note:''} · ${t.date}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="tx-amount ${t.type==='prijem'?'pos':'neg'}">${t.type==='prijem'?'+':'−'}${fmt(t.amount)}</div>
+        <button onclick="event.stopPropagation();deleteTx('${t.id}','${t.accountId}',${t.amount},'${t.type}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:#ddd;padding:2px">✕</button>
+      </div>
+    </div>`;
+  });}
+  h+=`</div>`;
+  return h;
+}
+
+function toggleTxFilter(){
+  txMonthFilter=!txMonthFilter;
+  render();
+}
+function changeTxMonth(dir){
+  selMonth+=dir;
+  if(selMonth>11){selMonth=0;selYear++;}
+  if(selMonth<0){selMonth=11;selYear--;}
+  render();
+}
+
+function filterTx(q){
+  searchQ=q;
+  const monthTxs=transactions.filter(t=>{
+    if(!txMonthFilter)return true;
+    const d=new Date(t.date);
+    return d.getMonth()===selMonth&&d.getFullYear()===selYear;
+  });
+  const filtered=monthTxs.filter(t=>{
+    if(!q)return true;
+    const ql=q.toLowerCase();
+    const cat=categories.find(c=>c.id===t.categoryId);
+    const acc=accounts.find(a=>a.id===t.accountId);
+    return (t.note||'').toLowerCase().includes(ql)||
+           String(t.amount).includes(ql)||
+           (cat?.name||'').toLowerCase().includes(ql)||
+           (acc?.name||'').toLowerCase().includes(ql);
+  });
+  const list=document.getElementById('tx-list');
+  if(!list)return;
+  if(!filtered.length){list.innerHTML=`<div class="empty">${q?'Nic nenalezeno.':'Žádné záznamy.'}</div>`;return;}
+  list.innerHTML=filtered.map(t=>{
     const acc=accounts.find(a=>a.id===t.accountId);
     const cat=categories.find(c=>c.id===t.categoryId);
     return`<div class="tx-item" onclick="openEdit('${t.id}')" style="cursor:pointer">
@@ -700,29 +867,33 @@ function vTx(){
 async function deleteTx(id, accountId, amount, type){
   if(!confirm('Smazat tento záznam?'))return;
   await db.collection('transactions').doc(id).delete();
-  const delta = type==='prijem' ? -amount : amount;
-  await db.collection('accounts').doc(accountId).update({balance: firebase.firestore.FieldValue.increment(delta)});
   toast('Záznam smazán');
 }
 
 function vKat(){
   let h=`<div class="cat-grid">`;
   categories.forEach(c=>{
-    const inUse=transactions.some(t=>t.categoryId===c.id);
     h+=`<div class="cat-card">
-      <div class="cat-card-icon">${c.icon}</div>
-      <div style="flex:1;min-width:0">
+      <div class="cat-card-icon" onclick="renameCat('${c.id}','${c.name}')" style="cursor:pointer" title="Klepni pro přejmenování">${c.icon}</div>
+      <div style="flex:1;min-width:0" onclick="renameCat('${c.id}','${c.name}')" style="cursor:pointer">
         <div class="cat-card-name">${c.name}</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
-          <input type="color" value="${c.color}" onchange="recolorCat('${c.id}',this.value)" style="width:24px;height:18px;border-radius:4px;border:1px solid var(--border);cursor:pointer;padding:1px">
+          <input type="color" value="${c.color}" onchange="recolorCat('${c.id}',this.value)" onclick="event.stopPropagation()" style="width:24px;height:18px;border-radius:4px;border:1px solid var(--border);cursor:pointer;padding:1px">
           <div class="cat-accent" style="background:${c.color};flex:1"></div>
         </div>
       </div>
-      ${!inUse?`<button class="del-btn" onclick="deleteCat('${c.id}')">✕</button>`:''}
+      <button class="del-btn" onclick="deleteCat('${c.id}')">✕</button>
     </div>`;
   });
   h+=`</div><button class="btn-add" onclick="document.getElementById('m-cat').classList.add('open')">+ Přidat kategorii</button>`;
   return h;
+}
+
+async function renameCat(id, oldName){
+  const name=prompt('Nový název kategorie:',oldName);
+  if(!name||!name.trim()||name.trim()===oldName)return;
+  await db.collection('categories').doc(id).update({name:name.trim()});
+  toast('Kategorie přejmenována ✓');
 }
 
 async function recolorCat(id, color){
@@ -731,7 +902,9 @@ async function recolorCat(id, color){
 }
 
 async function deleteCat(id){
-  if(!confirm('Smazat tuto kategorii?'))return;
+  const inUse=transactions.some(t=>t.categoryId===id);
+  const msg=inUse?'Tato kategorie je použita v záznamech. Záznamy zůstanou, ale bez kategorie. Smazat?':'Smazat tuto kategorii?';
+  if(!confirm(msg))return;
   await db.collection('categories').doc(id).delete();
   toast('Kategorie smazána');
 }
@@ -838,38 +1011,50 @@ async function saveTx(){
 
   if(editId){
     const oldAcc=document.getElementById('f-edit-old-acc').value;
-    const oldAmt=parseFloat(document.getElementById('f-edit-old-amt').value);
-    const oldType=document.getElementById('f-edit-old-type').value;
     toast('Záznam upraven ✓');
     db.collection('transactions').doc(editId).update({type,amount,accountId,categoryId,date,note,updatedAt:ts});
-    const revert=oldType==='prijem'?-oldAmt:oldAmt;
-    db.collection('accounts').doc(oldAcc).update({balance:firebase.firestore.FieldValue.increment(revert)});
-    const delta=type==='prijem'?amount:-amount;
-    db.collection('accounts').doc(accountId).update({balance:firebase.firestore.FieldValue.increment(delta)});
   } else {
     toast(type==='vydaj'?'Výdaj přidán ✓':'Příjem přidán ✓');
     db.collection('transactions').add({type,amount,accountId,categoryId,date,note,createdAt:ts});
-    const delta=type==='prijem'?amount:-amount;
-    db.collection('accounts').doc(accountId).update({balance:firebase.firestore.FieldValue.increment(delta)});
-
     // Při příjmu nabídni převod z Banky (ale ne pokud je příjem přímo na bankovní účet)
     if(type==='prijem'){
       const bankAcc=accounts.find(a=>a.isBank);
       if(bankAcc && bankAcc.id !== accountId){
-        const bankBal=bankAcc.balance||0;
-        const warning=bankBal<amount?`\n⚠️ V bance je jen ${fmt(bankBal)}!`:'';
-        const confirmed=confirm(`Převést ${fmt(amount)} z účtu "${bankAcc.name}"?${warning}`);
-        if(confirmed){
-          db.collection('accounts').doc(bankAcc.id).update({balance:firebase.firestore.FieldValue.increment(-amount)});
-          db.collection('transactions').add({
-            type:'prevod',amount,accountId:bankAcc.id,categoryId:'',
-            date,note:`Převod → ${accounts.find(a=>a.id===accountId)?.name||''}`,createdAt:ts
-          });
-          toast('Převod z banky proveden ✓');
-        }
+        const bankBal=calcBalance(bankAcc.id);
+        const warning=bankBal<amount?` (v bance jen ${fmt(bankBal)})`:'';
+        setTimeout(()=>showTransferConfirm(amount, bankAcc, accountId, date, warning),300);
       }
     }
   }
+}
+
+function showTransferConfirm(amount, bankAcc, accountId, date, warning){
+  // Zobraz banner dole nad FAB
+  const accName=accounts.find(a=>a.id===accountId)?.name||'';
+  const existing=document.getElementById('transfer-banner');
+  if(existing)existing.remove();
+  const banner=document.createElement('div');
+  banner.id='transfer-banner';
+  banner.style.cssText=`position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:#1565C0;color:#fff;padding:12px 16px;border-radius:14px;z-index:500;max-width:400px;width:90%;box-shadow:0 4px 16px #0004;font-size:14px`;
+  banner.innerHTML=`<div style="margin-bottom:8px">💳 Převést <strong>${fmt(amount)}</strong> z <strong>${bankAcc.name}</strong> na <strong>${accName}</strong>?${warning?'<br><span style="color:#ffcc02;font-size:12px">⚠️'+warning+'</span>':''}</div>
+    <div style="display:flex;gap:8px">
+      <button onclick="doTransfer('${bankAcc.id}',${amount},'${date}','${accountId}')" style="flex:2;padding:8px;border-radius:8px;border:none;background:#fff;color:#1565C0;font-weight:700;cursor:pointer">✓ Převést</button>
+      <button onclick="document.getElementById('transfer-banner').remove()" style="flex:1;padding:8px;border-radius:8px;border:1px solid #ffffff44;background:none;color:#fff;cursor:pointer">✕ Ne</button>
+    </div>`;
+  document.body.appendChild(banner);
+  setTimeout(()=>{if(banner.parentNode)banner.remove();},15000);
+}
+
+function doTransfer(bankId, amount, date, toAccId){
+  const ts=firebase.firestore.FieldValue.serverTimestamp();
+  const toName=accounts.find(a=>a.id===toAccId)?.name||'';
+  db.collection('transactions').add({
+    type:'prevod',amount,accountId:bankId,categoryId:'',
+    date,note:`Převod → ${toName}`,createdAt:ts
+  });
+  const banner=document.getElementById('transfer-banner');
+  if(banner)banner.remove();
+  toast('Převod z banky proveden ✓');
 }
 
 async function saveCat(){
@@ -908,8 +1093,21 @@ async function saveNote(){
   toast('Poznámka uložena ✓');
 }
 
+let compareOffset=0;
 function openCompare(){
+  compareOffset=0;
   document.getElementById('m-compare').classList.add('open');
+  renderCompareChart();
+}
+
+function shiftCompare(dir){
+  // Nejde dál než aktuální měsíc
+  if(dir>0 && compareOffset>=0)return;
+  compareOffset+=dir;
+  renderCompareChart();
+}
+
+function renderCompareChart(){
   setTimeout(()=>{
     const canvas=document.getElementById('compareChart');
     if(!canvas)return;
@@ -917,10 +1115,14 @@ function openCompare(){
 
     const months=[];
     for(let i=5;i>=0;i--){
-      let mo=selMonth-i, yr=selYear;
-      if(mo<0){mo+=12;yr--;}
+      let mo=selMonth-i+(compareOffset*6), yr=selYear;
+      while(mo<0){mo+=12;yr--;}
+      while(mo>11){mo-=12;yr++;}
       months.push({label:`${MONTHS[mo].slice(0,3)} ${yr}`,mo,yr});
     }
+    document.getElementById('compare-range').textContent=`${months[0].label} – ${months[5].label}`;
+    document.getElementById('compare-next').style.opacity=compareOffset>=0?.3:1;
+    document.getElementById('compare-next').style.cursor=compareOffset>=0?'default':'pointer';
 
     // Stacked kategorie
     const catDatasets=categories.map(cat=>{
@@ -958,31 +1160,10 @@ function openCompare(){
           if(!els.length)return;
           const i=els[0].index;
           const {mo,yr}=months[i];
-          const mTx=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj';});
-          const catMap={};
-          mTx.forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
-          const rows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
-          if(!rows.length){toast('Žádné výdaje v '+MONTHS[mo]);return;}
-          const total=rows.reduce((s,r)=>s+r.sum,0);
-          document.getElementById('pie-title').textContent=`Výdaje – ${MONTHS[mo]} ${yr}`;
+          const hasExp=transactions.some(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj';});
+          if(!hasExp){toast('Žádné výdaje v '+MONTHS[mo]);return;}
           document.getElementById('m-pie').classList.add('open');
-          setTimeout(()=>{
-            const c2=document.getElementById('pieChart');
-            if(!c2)return;
-            if(pieChart){pieChart.destroy();pieChart=null;}
-            c2.style.display='block';
-            pieChart=new Chart(c2,{
-              type:'doughnut',
-              data:{labels:rows.map(r=>r.cat.name),datasets:[{data:rows.map(r=>r.sum),backgroundColor:rows.map(r=>r.cat.color),borderWidth:2,borderColor:'#fff'}]},
-              options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.raw)} (${Math.round(c.raw/total*100)}%)`}}}}
-            });
-            document.getElementById('pie-legend').innerHTML=rows.map(r=>`
-              <div style="display:flex;align-items:center;gap:6px;font-size:12px">
-                <div style="width:10px;height:10px;border-radius:2px;background:${r.cat.color};flex-shrink:0"></div>
-                <span style="color:var(--muted)">${r.cat.icon} ${r.cat.name}</span>
-                <span style="font-weight:700;margin-left:auto">${fmt(r.sum)}</span>
-              </div>`).join('');
-          },150);
+          setTimeout(()=>showPieForMonth(mo,yr),150);
         },
         scales:{
           x:{stacked:true,grid:{display:false},ticks:{font:{size:10}}},
@@ -1064,6 +1245,36 @@ document.getElementById('content').addEventListener('touchend',e=>{
     const btn=document.querySelectorAll('.nav button')[idx-1];
     go(VIEWS[idx-1],btn);
   }
+},{passive:true});
+
+// Swipe pro srovnání měsíců
+let cmpSwipeX=0, cmpSwipeY=0;
+const cmpArea=document.getElementById('compare-touch-area');
+cmpArea.addEventListener('touchstart',e=>{
+  cmpSwipeX=e.touches[0].clientX;
+  cmpSwipeY=e.touches[0].clientY;
+},{passive:true});
+cmpArea.addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-cmpSwipeX;
+  const dy=e.changedTouches[0].clientY-cmpSwipeY;
+  if(Math.abs(dx)<50||Math.abs(dx)<Math.abs(dy)*1.5)return;
+  if(dx<0) shiftCompare(1);
+  else shiftCompare(-1);
+},{passive:true});
+
+// Swipe pro koláč (den i měsíc)
+let pieSwipeX=0, pieSwipeY=0;
+const pieArea=document.getElementById('pie-touch-area');
+pieArea.addEventListener('touchstart',e=>{
+  pieSwipeX=e.touches[0].clientX;
+  pieSwipeY=e.touches[0].clientY;
+},{passive:true});
+pieArea.addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-pieSwipeX;
+  const dy=e.changedTouches[0].clientY-pieSwipeY;
+  if(Math.abs(dx)<50||Math.abs(dx)<Math.abs(dy)*1.5)return;
+  if(dx<0) pieSwipe(1);
+  else pieSwipe(-1);
 },{passive:true});
 
 const now=new Date();
