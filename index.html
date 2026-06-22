@@ -185,6 +185,20 @@ body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);ma
   </div>
 </div>
 
+<!-- VRÁTIT DO BANKY -->
+<div class="overlay" id="m-return">
+  <div class="modal">
+    <div class="modal-title" id="return-title">Vrátit peníze do banky</div>
+    <input type="hidden" id="r-acc-id">
+    <input type="number" id="r-amt" placeholder="Částka (Kč)" inputmode="decimal" step="0.01">
+    <input type="date" id="r-date">
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeM('m-return')">Zrušit</button>
+      <button class="btn-save" onclick="saveReturn()">Vrátit</button>
+    </div>
+  </div>
+</div>
+
 <!-- ADD ACC -->
 <div class="overlay" id="m-acc">
   <div class="modal">
@@ -730,7 +744,8 @@ function vUcty(){
           <span style="font-weight:700;font-size:18px" class="${aBal>=0?'pos':'neg'}">${fmt(aBal)}</span>
           ${!hasTx?`<button onclick="deleteAcc('${a.id}')" style="background:none;border:1px solid #ffcdd2;color:var(--red);border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">Smazat</button>`:''}
         </div>
-      </div>`;
+      </div>
+      ${!a.isBank?`<button onclick="openReturnToBank('${a.id}')" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--blue);background:none;color:var(--blue);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:10px">↩️ Vrátit peníze do banky</button>`:''}`;
     if(aTx.length){
       h+=`<div style="border-top:1px solid #f0f0f0;padding-top:8px">`;
       aTx.slice(0,20).forEach(t=>{
@@ -761,6 +776,40 @@ async function deleteAcc(id){
   if(!confirm('Smazat tento účet?'))return;
   await db.collection('accounts').doc(id).delete();
   toast('Účet smazán');
+}
+
+function openReturnToBank(accId){
+  const bankAcc=accounts.find(a=>a.isBank);
+  if(!bankAcc){toast('Nejdřív nastav bankovní účet v Nastavení');return;}
+  const acc=accounts.find(a=>a.id===accId);
+  document.getElementById('return-title').textContent=`Vrátit z "${acc?.name}" do banky`;
+  document.getElementById('r-acc-id').value=accId;
+  document.getElementById('r-amt').value='';
+  document.getElementById('r-date').value=new Date().toISOString().slice(0,10);
+  document.getElementById('m-return').classList.add('open');
+}
+
+function saveReturn(){
+  const amount=parseFloat(document.getElementById('r-amt').value);
+  if(!amount||isNaN(amount)){toast('Zadej částku');return;}
+  const accId=document.getElementById('r-acc-id').value;
+  const date=document.getElementById('r-date').value;
+  const bankAcc=accounts.find(a=>a.isBank);
+  const acc=accounts.find(a=>a.id===accId);
+  if(!bankAcc)return;
+  closeM('m-return');
+  toast('Vráceno do banky ✓');
+  const ts=firebase.firestore.FieldValue.serverTimestamp();
+  // Výdaj na osobním účtu (peníze odešly z peněženky)
+  db.collection('transactions').add({
+    type:'vydaj',amount,accountId:accId,categoryId:'',
+    date,note:`Vratka → ${bankAcc.name}`,createdAt:ts
+  });
+  // Příjem na bankovním účtu
+  db.collection('transactions').add({
+    type:'prijem',amount,accountId:bankAcc.id,categoryId:'',
+    date,note:`Vratka ← ${acc?.name||''}`,createdAt:ts
+  });
 }
 
 let txMonthFilter=false; // false = vše, true = jen vybraný měsíc
