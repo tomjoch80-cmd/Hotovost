@@ -164,7 +164,8 @@ body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);ma
       <button onclick="pieSwipe(1)" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:16px;cursor:pointer;color:var(--text)">›</button>
     </div>
     <div style="height:220px;position:relative;width:100%"><canvas id="pieChart" style="max-height:220px"></canvas></div>
-    <div id="pie-legend" style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
+    <div id="pie-total" style="text-align:center;font-size:16px;font-weight:700;margin-top:10px;color:var(--red)"></div>
+    <div id="pie-legend" style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
   </div>
 </div>
 
@@ -271,8 +272,9 @@ function calcBalance(accountId, upToDate){
     if(t.accountId!==accountId)return;
     if(upToDate&&t.date>upToDate)return;
     if(t.type==='prijem') bal+=t.amount;
+    else if(t.type==='vratka') bal+=t.amount; // vratka přidá zůstatek ale není příjem
     else if(t.type==='vydaj') bal-=t.amount;
-    else if(t.type==='prevod') bal-=t.amount; // odchozí převod z banky
+    else if(t.type==='prevod') bal-=t.amount;
   });
   return bal;
 }
@@ -605,6 +607,7 @@ function showPieForMonth(mo, yr){
   if(pieChart){pieChart.destroy();pieChart=null;}
   if(!rows.length){
     canvas.style.display='none';
+    document.getElementById('pie-total').textContent='';
     document.getElementById('pie-legend').innerHTML=`<div style="text-align:center;color:var(--muted);padding:20px;grid-column:1/-1">Žádné výdaje</div>`;
     return;
   }
@@ -615,6 +618,7 @@ function showPieForMonth(mo, yr){
     data:{labels:rows.map(r=>r.cat.name),datasets:[{data:rows.map(r=>r.sum),backgroundColor:rows.map(r=>r.cat.color),borderWidth:2,borderColor:'#fff'}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.raw)} (${Math.round(c.raw/total*100)}%)`}}}}
   });
+  document.getElementById('pie-total').textContent='Celkem: '+fmt(total);
   document.getElementById('pie-legend').innerHTML=rows.map(r=>`
     <div style="display:flex;align-items:center;gap:6px;font-size:12px">
       <div style="width:10px;height:10px;border-radius:2px;background:${r.cat.color};flex-shrink:0"></div>
@@ -655,6 +659,7 @@ function showPieForDay(key, day, mo, yr){
     data:{labels:rows.map(r=>r.cat.name),datasets:[{data:rows.map(r=>r.sum),backgroundColor:rows.map(r=>r.cat.color),borderWidth:2,borderColor:'#fff'}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.raw)} (${Math.round(c.raw/total*100)}%)`}}}}
   });
+  document.getElementById('pie-total').textContent='Celkem: '+fmt(total);
   document.getElementById('pie-legend').innerHTML=rows.map(r=>`
     <div style="display:flex;align-items:center;gap:6px;font-size:12px">
       <div style="width:10px;height:10px;border-radius:2px;background:${r.cat.color};flex-shrink:0"></div>
@@ -683,6 +688,7 @@ function swipePieDay(dir){
     pieDay=newDay;
     document.getElementById('pie-title').textContent=`${newDay}. ${MONTHS[pieMo]} ${pieYr}`;
     if(pieChart){pieChart.destroy();pieChart=null;}
+    document.getElementById('pie-total').textContent='';
     document.getElementById('pie-legend').innerHTML=`<div style="text-align:center;color:var(--muted);padding:20px;grid-column:1/-1">Žádné výdaje</div>`;
     const canvas=document.getElementById('pieChart');
     canvas.style.display='none';
@@ -715,7 +721,8 @@ function openPie(){
       options:{responsive:true,maintainAspectRatio:false,
         plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmt(c.raw)} (${Math.round(c.raw/total*100)}%)`}}}}
     });
-    document.getElementById('pie-legend').innerHTML=rows.map(r=>`
+    document.getElementById('pie-total').textContent='Celkem: '+fmt(total);
+  document.getElementById('pie-legend').innerHTML=rows.map(r=>`
       <div style="display:flex;align-items:center;gap:6px;font-size:12px">
         <div style="width:10px;height:10px;border-radius:2px;background:${r.cat.color};flex-shrink:0"></div>
         <span style="color:var(--muted)">${r.cat.icon} ${r.cat.name}</span>
@@ -750,15 +757,18 @@ function vUcty(){
       h+=`<div style="border-top:1px solid #f0f0f0;padding-top:8px">`;
       aTx.slice(0,20).forEach(t=>{
         const cat=categories.find(c=>c.id===t.categoryId);
+        const icon=txIcon(t);
+        const label=txLabel(t);
+        const isPos=txIsPos(t);
         h+=`<div onclick="openEdit('${t.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #fafafa;cursor:pointer">
           <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:18px">${t.type==='prijem'?'💰':cat?.icon||'📦'}</span>
+            <span style="font-size:18px">${icon}</span>
             <div>
-              <div style="font-size:13px;font-weight:600">${t.type==='prijem'?'Příjem':cat?.name||'Ostatní'}</div>
+              <div style="font-size:13px;font-weight:600">${label}</div>
               <div style="font-size:11px;color:var(--muted)">${t.date}${t.note?' · '+t.note:''}</div>
             </div>
           </div>
-          <span style="font-weight:700;font-size:14px" class="${t.type==='prijem'?'pos':'neg'}">${t.type==='prijem'?'+':'−'}${fmt(t.amount)}</span>
+          <span style="font-weight:700;font-size:14px" class="${isPos?'pos':'neg'}">${isPos?'+':'−'}${fmt(t.amount)}</span>
         </div>`;
       });
       if(aTx.length>20) h+=`<div style="text-align:center;font-size:12px;color:var(--muted);padding:6px">+ dalších ${aTx.length-20} záznamů</div>`;
@@ -805,9 +815,9 @@ function saveReturn(){
     type:'vydaj',amount,accountId:accId,categoryId:'',
     date,note:`Vratka → ${bankAcc.name}`,createdAt:ts
   });
-  // Příjem na bankovním účtu
+  // Příjem na bankovním účtu – typ 'vratka' aby se nepočítalo jako skutečný příjem
   db.collection('transactions').add({
-    type:'prijem',amount,accountId:bankAcc.id,categoryId:'',
+    type:'vratka',amount,accountId:bankAcc.id,categoryId:'',
     date,note:`Vratka ← ${acc?.name||''}`,createdAt:ts
   });
 }
@@ -847,14 +857,14 @@ function vTx(){
     const cat=categories.find(c=>c.id===t.categoryId);
     h+=`<div class="tx-item" onclick="openEdit('${t.id}')" style="cursor:pointer">
       <div style="display:flex;align-items:center;min-width:0">
-        <div class="tx-icon">${t.type==='prijem'?'💰':t.type==='prevod'?'🏦':cat?.icon||'📦'}</div>
+        <div class="tx-icon">${txIcon(t)}</div>
         <div style="min-width:0">
-          <div class="tx-name">${t.type==='prijem'?'Příjem':t.type==='prevod'?'Převod z banky':cat?.name||'Ostatní'}</div>
+          <div class="tx-name">${txLabel(t)}</div>
           <div class="tx-sub">${acc?.name||''}${t.note?' · '+t.note:''} · ${t.date}</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <div class="tx-amount ${t.type==='prijem'?'pos':'neg'}">${t.type==='prijem'?'+':'−'}${fmt(t.amount)}</div>
+        <div class="tx-amount ${txIsPos(t)?'pos':'neg'}">${txIsPos(t)?'+':'−'}${fmt(t.amount)}</div>
         <button onclick="event.stopPropagation();deleteTx('${t.id}','${t.accountId}',${t.amount},'${t.type}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:#ddd;padding:2px">✕</button>
       </div>
     </div>`;
@@ -896,17 +906,16 @@ function filterTx(q){
   if(!filtered.length){list.innerHTML=`<div class="empty">${q?'Nic nenalezeno.':'Žádné záznamy.'}</div>`;return;}
   list.innerHTML=filtered.map(t=>{
     const acc=accounts.find(a=>a.id===t.accountId);
-    const cat=categories.find(c=>c.id===t.categoryId);
     return`<div class="tx-item" onclick="openEdit('${t.id}')" style="cursor:pointer">
       <div style="display:flex;align-items:center;min-width:0">
-        <div class="tx-icon">${t.type==='prijem'?'💰':t.type==='prevod'?'🏦':cat?.icon||'📦'}</div>
+        <div class="tx-icon">${txIcon(t)}</div>
         <div style="min-width:0">
-          <div class="tx-name">${t.type==='prijem'?'Příjem':t.type==='prevod'?'Převod z banky':cat?.name||'Ostatní'}</div>
+          <div class="tx-name">${txLabel(t)}</div>
           <div class="tx-sub">${acc?.name||''}${t.note?' · '+t.note:''} · ${t.date}</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <div class="tx-amount ${t.type==='prijem'?'pos':'neg'}">${t.type==='prijem'?'+':'−'}${fmt(t.amount)}</div>
+        <div class="tx-amount ${txIsPos(t)?'pos':'neg'}">${txIsPos(t)?'+':'−'}${fmt(t.amount)}</div>
         <button onclick="event.stopPropagation();deleteTx('${t.id}','${t.accountId}',${t.amount},'${t.type}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:#ddd;padding:2px">✕</button>
       </div>
     </div>`;
@@ -1015,6 +1024,27 @@ function openAdd(preselectAccId){
   if(preselectAccId) document.getElementById('f-acc').value=preselectAccId;
   setType('vydaj');
   document.getElementById('m-tx').classList.add('open');
+}
+
+function txLabel(t){
+  const cat=categories.find(c=>c.id===t.categoryId);
+  const acc=accounts.find(a=>a.id===t.accountId);
+  if(t.type==='prijem') return acc?.isBank?'Příjem':'Převod z banky';
+  if(t.type==='prevod') return 'Převod z banky';
+  if(t.type==='vratka') return 'Vratka do banky';
+  if(!cat&&t.note&&t.note.includes('Vratka')) return 'Vratka → Banka';
+  return cat?.name||'Ostatní';
+}
+function txIcon(t){
+  const cat=categories.find(c=>c.id===t.categoryId);
+  const acc=accounts.find(a=>a.id===t.accountId);
+  if(t.type==='prijem') return acc?.isBank?'💰':'🏦';
+  if(t.type==='prevod'||t.type==='vratka') return '🏦';
+  if(!cat&&t.note&&t.note.includes('Vratka')) return '🏦';
+  return cat?.icon||'📦';
+}
+function txIsPos(t){
+  return t.type==='prijem'||t.type==='vratka';
 }
 
 function openEdit(txId){
