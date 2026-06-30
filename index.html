@@ -403,9 +403,9 @@ function vPrehled(){
   const endOfMonth=new Date(y,m+1,0).toISOString().slice(0,10);
   const allTx=transactions.filter(t=>t.date<=endOfMonth);
   const inc=allTx.filter(t=>t.type==='prijem'&&bankAcc&&t.accountId===bankAcc.id).reduce((s,t)=>s+t.amount,0);
-  const exp=allTx.filter(t=>t.type==='vydaj').reduce((s,t)=>s+t.amount,0);
-  const tot=inc-exp;
+  const exp=allTx.filter(t=>t.type==='vydaj'&&!(t.note&&t.note.includes('Vratka'))).reduce((s,t)=>s+t.amount,0);
   const totalBal=accounts.reduce((s,a)=>s+calcBalance(a.id,endOfMonth),0);
+  const tot=totalBal;
   const catMap={};
   mTx.filter(t=>t.type==='vydaj').forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
   const catRows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
