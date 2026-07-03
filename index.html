@@ -681,22 +681,38 @@ function pieSwipe(dir){
 
 function swipePieDay(dir){
   if(pieDay===null)return;
-  const daysInMonth=new Date(pieYr,pieMo+1,0).getDate();
   let newDay=pieDay+dir;
-  if(newDay<1||newDay>daysInMonth)return;
-  const key=`${pieYr}-${String(pieMo+1).padStart(2,'0')}-${String(newDay).padStart(2,'0')}`;
-  const hasTx=transactions.some(t=>t.date===key&&t.type==='vydaj');
+  let newMo=pieMo;
+  let newYr=pieYr;
+  const daysInMonth=new Date(newYr,newMo+1,0).getDate();
+  // Přechod do předchozího měsíce
+  if(newDay<1){
+    newMo--;
+    if(newMo<0){newMo=11;newYr--;}
+    newDay=new Date(newYr,newMo+1,0).getDate();
+  }
+  // Přechod do dalšího měsíce
+  if(newDay>daysInMonth){
+    newMo++;
+    if(newMo>11){newMo=0;newYr++;}
+    newDay=1;
+  }
+  // Nejde do budoucnosti
+  const today=new Date();
+  const todayStr=todayLocal();
+  const newKey=`${newYr}-${String(newMo+1).padStart(2,'0')}-${String(newDay).padStart(2,'0')}`;
+  if(newKey>todayStr)return;
+
+  pieDay=newDay; pieMo=newMo; pieYr=newYr;
+  const hasTx=transactions.some(t=>t.date===newKey&&t.type==='vydaj');
   if(hasTx){
-    showPieForDay(key,newDay,pieMo,pieYr);
+    showPieForDay(newKey,newDay,newMo,newYr);
   } else {
-    // Žádné výdaje – ukáž prázdný stav ale aktualizuj den
-    pieDay=newDay;
-    document.getElementById('pie-title').textContent=`${newDay}. ${MONTHS[pieMo]} ${pieYr}`;
+    document.getElementById('pie-title').textContent=`${newDay}. ${MONTHS[newMo]} ${newYr}`;
     if(pieChart){pieChart.destroy();pieChart=null;}
     document.getElementById('pie-total').textContent='';
     document.getElementById('pie-legend').innerHTML=`<div style="text-align:center;color:var(--muted);padding:20px;grid-column:1/-1">Žádné výdaje</div>`;
-    const canvas=document.getElementById('pieChart');
-    canvas.style.display='none';
+    document.getElementById('pieChart').style.display='none';
   }
 }
 
