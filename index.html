@@ -588,9 +588,10 @@ function renderChart(){
         x:{stacked:true,grid:{display:false},ticks:{font:{size:8},maxRotation:0,autoSkip:false,callback:(val,i)=>(i%2===0?labels[i]:'')}},
         y:{stacked:true,grid:{color:'#f0f0f0'},ticks:{font:{size:10},callback:v=>v===0?'0':v>=1000?(v/1000).toFixed(0)+'k':v}}
       },
-      onClick:(e,els)=>{
-        if(!els.length)return;
-        const dayIdx=els[0].index;
+      onClick:(e)=>{
+        const points=chart.getElementsAtEventForMode(e,'index',{intersect:false},true);
+        if(!points.length)return;
+        const dayIdx=points[0].index;
         const d=dayIdx+1;
         const key=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         openDayDetail(key,d);
@@ -653,19 +654,23 @@ function swipePieMonth(dir){
 
 function showPieForDay(key, day, mo, yr){
   pieMode='day';
-  const dayTx=transactions.filter(t=>t.date===key&&t.type==='vydaj');
-  if(!dayTx.length){toast('V tento den žádné výdaje');return false;}
-  const catMap={};
-  dayTx.forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
-  const rows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
-  if(!rows.length)return false;
-  const total=rows.reduce((s,r)=>s+r.sum,0);
   pieDay=day; pieMo=mo; pieYr=yr;
   document.getElementById('pie-title').textContent=`${day}. ${MONTHS[mo]} ${yr}`;
   document.getElementById('pie-nav').style.display='flex';
   document.getElementById('pie-nav-hint').textContent='přejeď pro jiný den';
   const canvas=document.getElementById('pieChart');
+  const dayTx=transactions.filter(t=>t.date===key&&t.type==='vydaj');
+  const catMap={};
+  dayTx.forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
+  const rows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
   if(pieChart){pieChart.destroy();pieChart=null;}
+  if(!rows.length){
+    canvas.style.display='none';
+    document.getElementById('pie-total').textContent='';
+    document.getElementById('pie-legend').innerHTML=`<div style="text-align:center;color:var(--muted);padding:20px;grid-column:1/-1">Žádné výdaje</div>`;
+    return true;
+  }
+  const total=rows.reduce((s,r)=>s+r.sum,0);
   canvas.style.display='block';
   pieChart=new Chart(canvas,{
     type:'doughnut',
@@ -711,17 +716,7 @@ function swipePieDay(dir){
   const newKey=`${newYr}-${String(newMo+1).padStart(2,'0')}-${String(newDay).padStart(2,'0')}`;
   if(newKey>todayStr)return;
 
-  pieDay=newDay; pieMo=newMo; pieYr=newYr;
-  const hasTx=transactions.some(t=>t.date===newKey&&t.type==='vydaj');
-  if(hasTx){
-    showPieForDay(newKey,newDay,newMo,newYr);
-  } else {
-    document.getElementById('pie-title').textContent=`${newDay}. ${MONTHS[newMo]} ${newYr}`;
-    if(pieChart){pieChart.destroy();pieChart=null;}
-    document.getElementById('pie-total').textContent='';
-    document.getElementById('pie-legend').innerHTML=`<div style="text-align:center;color:var(--muted);padding:20px;grid-column:1/-1">Žádné výdaje</div>`;
-    document.getElementById('pieChart').style.display='none';
-  }
+  showPieForDay(newKey,newDay,newMo,newYr);
 }
 
 function openPie(){
@@ -1369,7 +1364,7 @@ cmpArea.addEventListener('touchend',e=>{
 },{passive:true});
 
 // Swipe pro koláč (den i měsíc)
-let pieSwipeX=0, pieSwipeY=0;
+let pieSwipeX=0, pieSwipeY=0, pieSwipeLock=false;
 const pieArea=document.getElementById('pie-touch-area');
 pieArea.addEventListener('touchstart',e=>{
   pieSwipeX=e.touches[0].clientX;
@@ -1379,6 +1374,9 @@ pieArea.addEventListener('touchend',e=>{
   const dx=e.changedTouches[0].clientX-pieSwipeX;
   const dy=e.changedTouches[0].clientY-pieSwipeY;
   if(Math.abs(dx)<50||Math.abs(dx)<Math.abs(dy)*1.5)return;
+  if(pieSwipeLock)return;
+  pieSwipeLock=true;
+  setTimeout(()=>{pieSwipeLock=false;},350);
   if(dx<0) pieSwipe(1);
   else pieSwipe(-1);
 },{passive:true});
