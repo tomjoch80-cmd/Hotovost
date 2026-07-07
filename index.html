@@ -268,6 +268,11 @@ function todayLocal(){
   const d=new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
+// Bezpečné parsování data ze stringu YYYY-MM-DD bez timezone bugů
+function dateMonth(s){return parseInt(s.slice(5,7))-1;}
+function dateYear(s){return parseInt(s.slice(0,4));}
+function dateDay(s){return parseInt(s.slice(8,10));}
+function inMonth(t,m,y){return dateMonth(t.date)===m&&dateYear(t.date)===y;}
 
 // Vždy počítej zůstatek z transakcí (jediný zdroj pravdy)
 function calcBalance(accountId, upToDate){
@@ -402,7 +407,7 @@ function vPrehled(){
   const m=selMonth, y=selYear;
   const now=new Date();
   const isCurrent=(m===now.getMonth()&&y===now.getFullYear());
-  const mTx=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===m&&d.getFullYear()===y;});
+  const mTx=transactions.filter(t=>inMonth(t,m,y));
   const bankAcc=accounts.find(a=>a.isBank)||null;
   const lastDay=new Date(y,m+1,0).getDate();
   const endOfMonth=`${y}-${String(m+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
@@ -545,9 +550,12 @@ function renderChart(){
   }
 
   // Trendová čára – průměrná denní útrata (jen dny co uplynuly)
-  const today=new Date();
-  const passedDays=(selMonth===today.getMonth()&&selYear===today.getFullYear())?today.getDate():daysInMonth;
-  const totalExp=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===m&&d.getFullYear()===y&&t.type==='vydaj';}).reduce((s,t)=>s+t.amount,0);
+  const todayStr2=todayLocal();
+  const passedDays=(selMonth===parseInt(todayStr2.slice(5,7))-1&&selYear===parseInt(todayStr2.slice(0,4)))?parseInt(todayStr2.slice(8,10)):daysInMonth;
+  const totalExp=transactions.filter(t=>{
+    const [ty,tm]=t.date.split('-').map(Number);
+    return tm-1===m&&ty===y&&t.type==='vydaj';
+  }).reduce((s,t)=>s+t.amount,0);
   const avgDay=passedDays>0?totalExp/passedDays:0;
   const trendDataset={
     label:'Průměr/den',
@@ -600,7 +608,7 @@ function openDayDetail(key, day){
 let pieChart=null, pieDay=null, pieMo=null, pieYr=null, pieMode='day';
 
 function showPieForMonth(mo, yr){
-  const mTx=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj';});
+  const mTx=transactions.filter(t=>inMonth(t,mo,yr)&&t.type==='vydaj');
   const catMap={};
   mTx.forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
   const rows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
@@ -720,7 +728,7 @@ function openPie(){
   pieDay=null;
   document.getElementById('pie-nav').style.display='none';
   const m=selMonth, y=selYear;
-  const mTx=transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===m&&d.getFullYear()===y&&t.type==='vydaj';});
+  const mTx=transactions.filter(t=>inMonth(t,m,y)&&t.type==='vydaj');
   const catMap={};
   mTx.forEach(t=>{catMap[t.categoryId]=(catMap[t.categoryId]||0)+t.amount;});
   const rows=Object.entries(catMap).map(([id,sum])=>({cat:categories.find(c=>c.id===id),sum})).filter(r=>r.cat).sort((a,b)=>b.sum-a.sum);
@@ -848,8 +856,7 @@ let txMonthFilter=false; // false = vše, true = jen vybraný měsíc
 function vTx(){
   const monthTxs=transactions.filter(t=>{
     if(!txMonthFilter)return true;
-    const d=new Date(t.date);
-    return d.getMonth()===selMonth&&d.getFullYear()===selYear;
+    return inMonth(t,selMonth,selYear);
   });
   const filtered=monthTxs.filter(t=>{
     if(!searchQ)return true;
@@ -909,8 +916,7 @@ function filterTx(q){
   searchQ=q;
   const monthTxs=transactions.filter(t=>{
     if(!txMonthFilter)return true;
-    const d=new Date(t.date);
-    return d.getMonth()===selMonth&&d.getFullYear()===selYear;
+    return inMonth(t,selMonth,selYear);
   });
   const filtered=monthTxs.filter(t=>{
     if(!q)return true;
@@ -1227,14 +1233,14 @@ function renderCompareChart(){
     // Stacked kategorie
     const catDatasets=categories.map(cat=>{
       const data=months.map(({mo,yr})=>
-        transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj'&&t.categoryId===cat.id;}).reduce((s,t)=>s+t.amount,0)
+        transactions.filter(t=>inMonth(t,mo,yr)&&t.type==='vydaj'&&t.categoryId===cat.id).reduce((s,t)=>s+t.amount,0)
       );
       return data.some(v=>v>0)?{label:cat.name,data,backgroundColor:cat.color+'cc',borderRadius:0,borderSkipped:false,stack:'vydaje'}:null;
     }).filter(Boolean);
 
     // Příjmy jako čára
     const incData=months.map(({mo,yr})=>
-      transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='prijem'&&accounts.find(a=>a.id===t.accountId)?.isBank;}).reduce((s,t)=>s+t.amount,0)
+      transactions.filter(t=>inMonth(t,mo,yr)&&t.type==='prijem'&&accounts.find(a=>a.id===t.accountId)?.isBank).reduce((s,t)=>s+t.amount,0)
     );
     const incDataset={
       label:'Vklad',data:incData,type:'line',
@@ -1244,7 +1250,7 @@ function renderCompareChart(){
 
     // Celkové součty pro labely
     const totals=months.map(({mo,yr})=>
-      transactions.filter(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj';}).reduce((s,t)=>s+t.amount,0)
+      transactions.filter(t=>inMonth(t,mo,yr)&&t.type==='vydaj').reduce((s,t)=>s+t.amount,0)
     );
 
     compareChart=new Chart(canvas,{
@@ -1260,7 +1266,7 @@ function renderCompareChart(){
           if(!els.length)return;
           const i=els[0].index;
           const {mo,yr}=months[i];
-          const hasExp=transactions.some(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj';});
+          const hasExp=transactions.some(t=>inMonth(t,mo,yr)&&t.type==='vydaj');
           if(!hasExp){toast('Žádné výdaje v '+MONTHS[mo]);return;}
           document.getElementById('m-pie').classList.add('open');
           setTimeout(()=>showPieForMonth(mo,yr),150);
@@ -1309,7 +1315,7 @@ function renderCompareChart(){
       }]
     });
 
-    const usedCats=categories.filter(cat=>months.some(({mo,yr})=>transactions.some(t=>{const d=new Date(t.date);return d.getMonth()===mo&&d.getFullYear()===yr&&t.type==='vydaj'&&t.categoryId===cat.id;})));
+    const usedCats=categories.filter(cat=>months.some(({mo,yr})=>transactions.some(t=>inMonth(t,mo,yr)&&t.type==='vydaj'&&t.categoryId===cat.id)));
     document.getElementById('compare-legend').innerHTML=`
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
         <div style="display:flex;align-items:center;gap:4px;font-size:11px">
